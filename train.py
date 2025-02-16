@@ -44,18 +44,17 @@ def main(args):
 
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.cuda()
-    model = torch.compile(uncomp_model)
 
     logging.info('args = %s', args)
-    logging.info('param size = %fM ', utils.count_parameters_in_M(model))
-    logging.info('groups per scale: %s, total_groups: %d', model.groups_per_scale, sum(model.groups_per_scale))
+    logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
+    logging.info('groups per scale: %s, total_groups: %d', uncomp_model.groups_per_scale, sum(uncomp_model.groups_per_scale))
 
     if args.fast_adamax:
         # Fast adamax has the same functionality as torch.optim.Adamax, except it is faster.
-        cnn_optimizer = Adamax(model.parameters(), args.learning_rate,
+        cnn_optimizer = Adamax(uncomp_model.parameters(), args.learning_rate,
                                weight_decay=args.weight_decay, eps=1e-3)
     else:
-        cnn_optimizer = torch.optim.Adamax(model.parameters(), args.learning_rate,
+        cnn_optimizer = torch.optim.Adamax(uncomp_model.parameters(), args.learning_rate,
                                            weight_decay=args.weight_decay, eps=1e-3)
 
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -69,16 +68,19 @@ def main(args):
     checkpoint_file = os.path.join(args.save, 'checkpoint.pt')
     if args.cont_training:
         logging.info('loading the model.')
-        checkpoint = torch.load(checkpoint_file, map_location='cpu')
+        checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
         init_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        model = model.cuda()
+        uncomp_model.load_state_dict(checkpoint['state_dict'])
+        uncomp_model = uncomp_model.cuda()
         cnn_optimizer.load_state_dict(checkpoint['optimizer'])
         grad_scalar.load_state_dict(checkpoint['grad_scalar'])
         cnn_scheduler.load_state_dict(checkpoint['scheduler'])
         global_step = checkpoint['global_step']
     else:
         global_step, init_epoch = 0, 0
+    
+    #Compiling model for faster performance
+    model = torch.compile(uncomp_model)
 
     for epoch in range(init_epoch, args.epochs):
         # update lrs.
