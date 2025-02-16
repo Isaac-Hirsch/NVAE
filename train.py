@@ -13,7 +13,7 @@ import os
 
 import torch.distributed as dist
 from torch.multiprocessing import Process
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 from model import AutoEncoder
 from thirdparty.adamax import Adamax
@@ -42,8 +42,9 @@ def main(args):
 
     arch_instance = utils.get_arch_cells(args.arch_instance)
 
-    model = AutoEncoder(args, writer, arch_instance)
-    model = model.cuda()
+    uncomp_model = AutoEncoder(args, writer, arch_instance)
+    uncomp_model = uncomp_model.cuda()
+    model = torch.compile(uncomp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(model))
@@ -59,7 +60,7 @@ def main(args):
 
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         cnn_optimizer, float(args.epochs - args.warmup_epochs - 1), eta_min=args.learning_rate_min)
-    grad_scalar = GradScaler(2**10)
+    grad_scalar = GradScaler("cuda", 2**10)
 
     num_output = utils.num_output(args.dataset)
     bpd_coeff = 1. / np.log(2.) / num_output
@@ -163,7 +164,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             utils.average_params(model.parameters(), args.distributed)
 
         cnn_optimizer.zero_grad()
-        with autocast():
+        with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x)
 
             output = model.decoder_output(logits)
