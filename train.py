@@ -44,6 +44,7 @@ def main(args):
 
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.cuda()
+    model = torch.compile(uncomp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -70,8 +71,8 @@ def main(args):
         logging.info('loading the model.')
         checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
         init_epoch = checkpoint['epoch']
-        uncomp_model.load_state_dict(checkpoint['state_dict'])
-        uncomp_model = uncomp_model.cuda()
+        model.load_state_dict(checkpoint['state_dict'])
+        model = uncomp_model.cuda()
         cnn_optimizer.load_state_dict(checkpoint['optimizer'])
         grad_scalar.load_state_dict(checkpoint['grad_scalar'])
         cnn_scheduler.load_state_dict(checkpoint['scheduler'])
@@ -80,7 +81,6 @@ def main(args):
         global_step, init_epoch = 0, 0
     
     #Compiling model for faster performance
-    model = torch.compile(uncomp_model)
 
     for epoch in range(init_epoch, args.epochs):
         # update lrs.

@@ -11,9 +11,10 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from time import time
+import torchvision
 
 from torch.multiprocessing import Process
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from model import AutoEncoder
 import utils
@@ -26,7 +27,7 @@ def set_bn(model, bn_eval_mode, num_samples=1, t=1.0, iter=100):
         model.eval()
     else:
         model.train()
-        with autocast():
+        with autocast("cuda"):
             for i in range(iter):
                 if i % 10 == 0:
                     print('setting BN statistics iter %d out of %d' % (i+1, iter))
@@ -41,7 +42,7 @@ def main(eval_args):
     # load a checkpoint
     logging.info('loading the model at:')
     logging.info(eval_args.checkpoint)
-    checkpoint = torch.load(eval_args.checkpoint, map_location='cpu')
+    checkpoint = torch.load(eval_args.checkpoint, map_location='cpu', weights_only=False)
     args = checkpoint['args']
 
     if not hasattr(args, 'ada_groups'):
@@ -61,11 +62,12 @@ def main(eval_args):
 
     logging.info('loaded the model at epoch %d', checkpoint['epoch'])
     arch_instance = utils.get_arch_cells(args.arch_instance)
-    model = AutoEncoder(args, None, arch_instance)
+    uncomp_model = AutoEncoder(args, None, arch_instance)
+    model = torch.compile(uncomp_model)
     # Loading is not strict because of self.weight_normalized in Conv2D class in neural_operations. This variable
     # is only used for computing the spectral normalization and it is safe not to load it. Some of our earlier models
     # did not have this variable.
-    model.load_state_dict(checkpoint['state_dict'], strict=False)
+    model.load_state_dict(checkpoint['state_dict'])
     model = model.cuda()
 
     logging.info('args = %s', args)
@@ -109,7 +111,7 @@ def main(eval_args):
             for ind in range(num_iter):     # sampling is repeated.
                 torch.cuda.synchronize()
                 start = time()
-                with autocast():
+                with autocast("cuda"):
                     logits = model.sample(num_samples, eval_args.temp)
                 output = model.decoder_output(logits)
                 output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
@@ -129,6 +131,11 @@ def main(eval_args):
                 else:
                     file_path = os.path.join(eval_args.save, 'gpu_%d_samples_%d.npz' % (eval_args.local_rank, ind))
                     np.savez_compressed(file_path, samples=output_img.cpu().numpy())
+
+                    grid = torchvision.utils.make_grid(output_img.cpu(), nrow=10, normalize=True)
+                    torchvision.utils.save_image(grid, file_path.replace('.npz', '.png'))
+
+                    
                     logging.info('Saved at: {}'.format(file_path))
 
 

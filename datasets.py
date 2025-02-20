@@ -162,8 +162,8 @@ def get_loaders_eval(dataset, args):
             resize = 64
             num_classes = 40
             train_transform, valid_transform = _data_transforms_celeba64(resize)
-            train_data = LMDBDataset(root=args.data, name='celeba64', train=True, transform=train_transform, is_encoded=True)
-            valid_data = LMDBDataset(root=args.data, name='celeba64', train=False, transform=valid_transform, is_encoded=True)
+            train_data = dset.celeba.CelebA(root=args.data, split="train", target_type='attr', download=False, transform=train_transform)
+            valid_data = dset.celeba.CelebA(root=args.data, split="valid", target_type='attr', download=False, transform=valid_transform)
         elif dataset in {'celeba_256'}:
             num_classes = 1
             resize = int(dataset.split('_')[1])
@@ -217,7 +217,7 @@ def get_loaders_eval(dataset, args):
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size,
         shuffle=(train_sampler is None),
-        sampler=train_sampler, pin_memory=True, num_workers=8, drop_last=True)
+        sampler=train_sampler, pin_memory=True, num_workers=2, drop_last=True)
 
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size,
