@@ -12,7 +12,8 @@ import numpy as np
 import os
 
 import torch.distributed as dist
-from torch.multiprocessing import Process
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.multiprocessing as mp
 from torch.amp import autocast, GradScaler
 
 from model import AutoEncoder
@@ -24,8 +25,15 @@ from fid.fid_score import compute_statistics_of_generator, load_statistics, calc
 from fid.inception import InceptionV3
 
 
-def main(args):
+def main(rank, args):
     # ensures that weight initializations are all the same
+    print(f"Setting up process for rank {rank}")
+    args.global_rank = rank
+    args.global_size = args.num_proc_node * args.num_process_per_node
+    args.distributed = args.global_size > 1
+    setup(rank, args.global_size)
+    args.local_rank = rank % args.num_process_per_node
+
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -43,8 +51,9 @@ def main(args):
     arch_instance = utils.get_arch_cells(args.arch_instance)
 
     uncomp_model = AutoEncoder(args, writer, arch_instance)
-    uncomp_model = uncomp_model.cuda()
-    model = torch.compile(uncomp_model)
+    uncomp_model = uncomp_model.to(rank)
+    ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
+    model = torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -60,7 +69,7 @@ def main(args):
 
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         cnn_optimizer, float(args.epochs - args.warmup_epochs - 1), eta_min=args.learning_rate_min)
-    grad_scalar = GradScaler("cuda", 2**10)
+    grad_scalar = GradScaler(rank, 2**10)
 
     num_output = utils.num_output(args.dataset)
     bpd_coeff = 1. / np.log(2.) / num_output
@@ -72,7 +81,7 @@ def main(args):
         checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
         init_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
-        model = uncomp_model.cuda()
+        model = model.to(rank)
         cnn_optimizer.load_state_dict(checkpoint['optimizer'])
         grad_scalar.load_state_dict(checkpoint['grad_scalar'])
         cnn_scheduler.load_state_dict(checkpoint['scheduler'])
@@ -95,7 +104,7 @@ def main(args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
+        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
 
@@ -107,8 +116,8 @@ def main(args):
                 num_samples = 16
                 n = int(np.floor(np.sqrt(num_samples)))
                 for t in [0.7, 0.8, 0.9, 1.0]:
-                    logits = model.sample(num_samples, t)
-                    output = model.decoder_output(logits)
+                    logits = model.module.sample(num_samples, t)
+                    output = model.module.decoder_output(logits)
                     output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample(t)
                     output_tiled = utils.tile_image(output_img, n)
                     writer.add_image('generated_%0.1f' % t, output_tiled, global_step)
@@ -133,7 +142,7 @@ def main(args):
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
     # Final validation
-    valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=1000, args=args, logging=logging)
+    valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=100, args=args, logging=logging)
     logging.info('final valid nelbo %f', valid_nelbo)
     logging.info('final valid neg log p %f', valid_neg_log_p)
     writer.add_scalar('val/neg_log_p', valid_neg_log_p, epoch + 1)
@@ -142,15 +151,18 @@ def main(args):
     writer.add_scalar('val/bpd_elbo', valid_nelbo * bpd_coeff, epoch + 1)
     writer.close()
 
+    cleanup()
 
-def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging):
-    alpha_i = utils.kl_balancer_coeff(num_scales=model.num_latent_scales,
-                                      groups_per_scale=model.groups_per_scale, fun='square')
+
+def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args):
+    alpha_i = utils.kl_balancer_coeff(num_scales=model.module.num_latent_scales,
+                                      groups_per_scale=model.module.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
     model.train()
+    rank = next(model.module.parameters()).device
     for step, x in enumerate(train_queue):
         x = x[0] if len(x) > 1 else x
-        x = x.cuda()
+        x = x.to(rank)
 
         # change bit length
         x = utils.pre_process(x, args.num_x_bits)
@@ -161,25 +173,21 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
 
-        # sync parameters, it may not be necessary
-        if step % 100 == 0:
-            utils.average_params(model.parameters(), args.distributed)
-
         cnn_optimizer.zero_grad()
         with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x)
 
-            output = model.decoder_output(logits)
+            output = model.module.decoder_output(logits)
             kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
                                       args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
-            recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
+            recon_loss = utils.reconstruction_loss(output, x, crop=model.module.crop_output)
             balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             nelbo_batch = recon_loss + balanced_kl
             loss = torch.mean(nelbo_batch)
-            norm_loss = model.spectral_norm_parallel()
-            bn_loss = model.batchnorm_loss()
+            norm_loss = model.module.spectral_norm_parallel()
+            bn_loss = model.module.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
             if args.weight_decay_norm_anneal:
                 assert args.weight_decay_norm_init > 0 and args.weight_decay_norm > 0, 'init and final wdn should be positive.'
@@ -191,7 +199,6 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             loss += norm_loss * wdn_coeff + bn_loss * wdn_coeff
 
         grad_scalar.scale(loss).backward()
-        utils.average_gradients(model.parameters(), args.distributed)
         grad_scalar.step(cnn_optimizer)
         grad_scalar.update()
         nelbo.update(loss.data, 1)
@@ -219,7 +226,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
                               'param_groups'][0]['lr'], global_step)
             writer.add_scalar('train/nelbo_iter', loss, global_step)
             writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
-            writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
+            writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.module.crop_output)), global_step)
             writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
             total_active = 0
             for i, kl_diag_i in enumerate(kl_diag):
@@ -245,9 +252,10 @@ def test(valid_queue, model, num_samples, args, logging):
     nelbo_avg = utils.AvgrageMeter()
     neg_log_p_avg = utils.AvgrageMeter()
     model.eval()
+    rank = next(model.module.parameters()).device
     for step, x in enumerate(valid_queue):
         x = x[0] if len(x) > 1 else x
-        x = x.cuda()
+        x = x.to(rank)
 
         # change bit length
         x = utils.pre_process(x, args.num_x_bits)
@@ -256,12 +264,12 @@ def test(valid_queue, model, num_samples, args, logging):
             nelbo, log_iw = [], []
             for k in range(num_samples):
                 logits, log_q, log_p, kl_all, _ = model(x)
-                output = model.decoder_output(logits)
-                recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
+                output = model.module.decoder_output(logits)
+                recon_loss = utils.reconstruction_loss(output, x, crop=model.module.crop_output)
                 balanced_kl, _, _ = utils.kl_balancer(kl_all, kl_balance=False)
                 nelbo_batch = recon_loss + balanced_kl
                 nelbo.append(nelbo_batch)
-                log_iw.append(utils.log_iw(output, x, log_q, log_p, crop=model.crop_output))
+                log_iw.append(utils.log_iw(output, x, log_q, log_p, crop=model.module.crop_output))
 
             nelbo = torch.mean(torch.stack(nelbo, dim=1))
             log_p = torch.mean(torch.logsumexp(torch.stack(log_iw, dim=1), dim=1) - np.log(num_samples))
@@ -282,26 +290,26 @@ def create_generator_vae(model, batch_size, num_total_samples):
     num_iters = int(np.ceil(num_total_samples / batch_size))
     for i in range(num_iters):
         with torch.no_grad():
-            logits = model.sample(batch_size, 1.0)
-            output = model.decoder_output(logits)
+            logits = model.module.sample(batch_size, 1.0)
+            output = model.module.decoder_output(logits)
             output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.mean()
         yield output_img.float()
 
 
 def test_vae_fid(model, args, total_fid_samples):
     dims = 2048
-    device = 'cuda'
+    rank = next(model.module.parameters()).device
     num_gpus = args.num_process_per_node * args.num_proc_node
     num_sample_per_gpu = int(np.ceil(total_fid_samples / num_gpus))
 
     g = create_generator_vae(model, args.batch_size, num_sample_per_gpu)
     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
-    model = InceptionV3([block_idx], model_dir=args.fid_dir).to(device)
-    m, s = compute_statistics_of_generator(g, model, args.batch_size, dims, device, max_samples=num_sample_per_gpu)
+    model = InceptionV3([block_idx], model_dir=args.fid_dir).to(rank)
+    m, s = compute_statistics_of_generator(g, model, args.batch_size, dims, rank, max_samples=num_sample_per_gpu)
 
     # share m and s
-    m = torch.from_numpy(m).cuda()
-    s = torch.from_numpy(s).cuda()
+    m = torch.from_numpy(m).to(rank)
+    s = torch.from_numpy(s).to(rank)
     # take average across gpus
     utils.average_tensor(m, args.distributed)
     utils.average_tensor(s, args.distributed)
@@ -442,25 +450,23 @@ if __name__ == '__main__':
 
     size = args.num_process_per_node
 
-    if size > 1:
-        args.distributed = True
-        processes = []
-        for rank in range(size):
-            args.local_rank = rank
-            global_rank = rank + args.node_rank * args.num_process_per_node
-            global_size = args.num_proc_node * args.num_process_per_node
-            args.global_rank = global_rank
-            print('Node rank %d, local proc %d, global proc %d' % (args.node_rank, rank, global_rank))
-            p = Process(target=init_processes, args=(global_rank, global_size, main, args))
-            p.start()
-            processes.append(p)
+    mp.spawn(
+        main,
+        args=(args,),
+        nprocs=size,
+        join=True
+    )
 
-        for p in processes:
-            p.join()
-    else:
-        # for debugging
-        print('starting in debug mode')
-        args.distributed = True
-        init_processes(0, size, main, args)
+def setup(rank, world_size):
+    # initialize the process group
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+
+def cleanup():
+    dist.destroy_process_group()
+
 
 

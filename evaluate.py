@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 from time import time
 import torchvision
 
+
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.multiprocessing as mp
 from torch.multiprocessing import Process
 from torch.amp import autocast
 
@@ -31,19 +35,27 @@ def set_bn(model, bn_eval_mode, num_samples=1, t=1.0, iter=100):
             for i in range(iter):
                 if i % 10 == 0:
                     print('setting BN statistics iter %d out of %d' % (i+1, iter))
-                model.sample(num_samples, t)
+                model.module.sample(num_samples, t)
         model.eval()
 
 
-def main(eval_args):
+def main(rank, eval_args):
+
     # ensures that weight initializations are all the same
+    print(f"Setting up process for rank {rank}")
+    setup(rank, eval_args.world_size)
+
     logging = utils.Logger(eval_args.local_rank, eval_args.save)
 
     # load a checkpoint
     logging.info('loading the model at:')
     logging.info(eval_args.checkpoint)
-    checkpoint = torch.load(eval_args.checkpoint, map_location='cpu', weights_only=False)
+    checkpoint = torch.load(eval_args.checkpoint, map_location='cuda', weights_only=False)
     args = checkpoint['args']
+
+    args.num_process_per_node = eval_args.world_size
+    args.world_size = eval_args.world_size
+    args.distributed = eval_args.world_size > 1
 
     if not hasattr(args, 'ada_groups'):
         logging.info('old model, no ada groups was found.')
@@ -63,16 +75,17 @@ def main(eval_args):
     logging.info('loaded the model at epoch %d', checkpoint['epoch'])
     arch_instance = utils.get_arch_cells(args.arch_instance)
     uncomp_model = AutoEncoder(args, None, arch_instance)
-    model = torch.compile(uncomp_model)
+    uncomp_model = uncomp_model.to(rank)
+    ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
+    model = torch.compile(ddp_model)
     # Loading is not strict because of self.weight_normalized in Conv2D class in neural_operations. This variable
     # is only used for computing the spectral normalization and it is safe not to load it. Some of our earlier models
     # did not have this variable.
     model.load_state_dict(checkpoint['state_dict'])
-    model = model.cuda()
 
     logging.info('args = %s', args)
-    logging.info('num conv layers: %d', len(model.all_conv_layers))
-    logging.info('param size = %fM ', utils.count_parameters_in_M(model))
+    logging.info('num conv layers: %d', len(model.module.all_conv_layers))
+    logging.info('param size = %fM ', utils.count_parameters_in_M(model.module))
 
     if eval_args.eval_mode == 'evaluate':
         # load train valid queue
@@ -97,7 +110,7 @@ def main(eval_args):
         set_bn(model, bn_eval_mode, num_samples=2, t=eval_args.temp, iter=500)
         args.fid_dir = eval_args.fid_dir
         args.num_process_per_node, args.num_proc_node = eval_args.world_size, 1   # evaluate only one 1 node
-        fid = test_vae_fid(model, args, total_fid_samples=50000)
+        fid = test_vae_fid(model.module, args, total_fid_samples=50000)
         logging.info('fid is %f' % fid)
     else:
         bn_eval_mode = not eval_args.readjust_bn
@@ -112,8 +125,8 @@ def main(eval_args):
                 torch.cuda.synchronize()
                 start = time()
                 with autocast("cuda"):
-                    logits = model.sample(num_samples, eval_args.temp)
-                output = model.decoder_output(logits)
+                    logits = model.module.sample(num_samples, eval_args.temp)
+                output = model.module.decoder_output(logits)
                 output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
                     else output.sample()
                 torch.cuda.synchronize()
@@ -137,6 +150,7 @@ def main(eval_args):
 
                     
                     logging.info('Saved at: {}'.format(file_path))
+    cleanup()
 
 
 if __name__ == '__main__':
@@ -177,19 +191,20 @@ if __name__ == '__main__':
 
     size = args.world_size
 
-    if size > 1:
-        args.distributed = True
-        processes = []
-        for rank in range(size):
-            args.local_rank = rank
-            p = Process(target=init_processes, args=(rank, size, main, args))
-            p.start()
-            processes.append(p)
+    mp.spawn(
+        main,
+        args=(args,),
+        nprocs=size,
+        join=True
+    )
 
-        for p in processes:
-            p.join()
-    else:
-        # for debugging
-        print('starting in debug mode')
-        args.distributed = True
-        init_processes(0, size, main, args)
+def setup(rank, world_size):
+    # initialize the process group
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+
+def cleanup():
+    dist.destroy_process_group()
