@@ -486,7 +486,7 @@ class AutoEncoder(nn.Module):
         if self.dataset in {'mnist', 'omniglot'}:
             return Bernoulli(logits=logits)
         elif self.dataset in {'stacked_mnist', 'cifar10', 'celeba_64', 'celeba_256', 'imagenet_32', 'imagenet_64', 'ffhq',
-                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128'}:
+                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations_causal-64'}:
             if self.num_mix_output == 1:
                 return NormalDecoder(logits, num_bits=self.num_bits)
             else:

@@ -18,6 +18,7 @@ import os
 import urllib
 from lmdb_datasets import LMDBDataset
 from thirdparty.lsun import LSUN
+from scripts.identBox.identBoxDataset import IdentBoxDataset, data_transforms_identbox
 
 
 class StackedMNIST(dset.MNIST):
@@ -206,6 +207,13 @@ def get_loaders_eval(dataset, args):
         train_transform, valid_transform = _data_transforms_generic(resize)
         train_data = LMDBDataset(root=args.data, name='ffhq', train=True, transform=train_transform)
         valid_data = LMDBDataset(root=args.data, name='ffhq', train=False, transform=valid_transform)
+    elif dataset.startswith('identbox'):
+        num_classes = 1
+        directory = os.path.join(args.data, dataset.split('-')[1])
+        resize = int(dataset.split('-')[2])
+        train_transform, valid_transform = data_transforms_identbox(resize)
+        train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
+        valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
     else:
         raise NotImplementedError
 

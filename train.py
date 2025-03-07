@@ -16,8 +16,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from torch.amp import autocast, GradScaler
 
-from torch.profiler import profile, record_function, ProfilerActivity
-
 from model import AutoEncoder
 from thirdparty.adamax import Adamax
 import utils
@@ -54,8 +52,8 @@ def main(rank, args):
 
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.to(rank)
-    #ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
-    model = uncomp_model #ddp_model
+    ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
+    model = torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -118,8 +116,8 @@ def main(rank, args):
                 num_samples = 16
                 n = int(np.floor(np.sqrt(num_samples)))
                 for t in [0.7, 0.8, 0.9, 1.0]:
-                    logits = model.sample(num_samples, t)
-                    output = model.decoder_output(logits)
+                    logits = model.module.sample(num_samples, t)
+                    output = model.module.decoder_output(logits)
                     output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample(t)
                     output_tiled = utils.tile_image(output_img, n)
                     writer.add_image('generated_%0.1f' % t, output_tiled, global_step)
@@ -157,16 +155,13 @@ def main(rank, args):
 
 
 def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args):
-    alpha_i = utils.kl_balancer_coeff(num_scales=model.num_latent_scales,
-                                      groups_per_scale=model.groups_per_scale, fun='square')
+    alpha_i = utils.kl_balancer_coeff(num_scales=model.module.num_latent_scales,
+                                      groups_per_scale=model.module.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
     model.train()
-    rank = next(model.parameters()).device
+    rank = next(model.module.parameters()).device
     for step, x in enumerate(train_queue):
-        if step == 10:
-            break
-
-        x = x[0] if len(x) > 1 else x
+        x = x[0] if not isinstance(x, torch.Tensor) else x
         x = x.to(rank)
 
         # change bit length
@@ -180,21 +175,19 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast("cuda"):
-            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-                with record_function("model_train"):
-                    logits, log_q, log_p, kl_all, kl_diag = model(x)
-            logging.info(prof.key_averages().table())
-            output = model.decoder_output(logits)
+            logits, log_q, log_p, kl_all, kl_diag = model(x)
+
+            output = model.module.decoder_output(logits)
             kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
                                       args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
-            recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
+            recon_loss = utils.reconstruction_loss(output, x, crop=model.module.crop_output)
             balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             nelbo_batch = recon_loss + balanced_kl
             loss = torch.mean(nelbo_batch)
-            norm_loss = model.spectral_norm_parallel()
-            bn_loss = model.batchnorm_loss()
+            norm_loss = model.module.spectral_norm_parallel()
+            bn_loss = model.module.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
             if args.weight_decay_norm_anneal:
                 assert args.weight_decay_norm_init > 0 and args.weight_decay_norm > 0, 'init and final wdn should be positive.'
@@ -233,7 +226,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
                               'param_groups'][0]['lr'], global_step)
             writer.add_scalar('train/nelbo_iter', loss, global_step)
             writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
-            writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
+            writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.module.crop_output)), global_step)
             writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
             total_active = 0
             for i, kl_diag_i in enumerate(kl_diag):
@@ -259,9 +252,9 @@ def test(valid_queue, model, num_samples, args, logging):
     nelbo_avg = utils.AvgrageMeter()
     neg_log_p_avg = utils.AvgrageMeter()
     model.eval()
-    rank = next(model.parameters()).device
+    rank = next(model.module.parameters()).device
     for step, x in enumerate(valid_queue):
-        x = x[0] if len(x) > 1 else x
+        x = x[0] if not isinstance(x, torch.Tensor) else x
         x = x.to(rank)
 
         # change bit length
@@ -271,12 +264,12 @@ def test(valid_queue, model, num_samples, args, logging):
             nelbo, log_iw = [], []
             for k in range(num_samples):
                 logits, log_q, log_p, kl_all, _ = model(x)
-                output = model.decoder_output(logits)
-                recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
+                output = model.module.decoder_output(logits)
+                recon_loss = utils.reconstruction_loss(output, x, crop=model.module.crop_output)
                 balanced_kl, _, _ = utils.kl_balancer(kl_all, kl_balance=False)
                 nelbo_batch = recon_loss + balanced_kl
                 nelbo.append(nelbo_batch)
-                log_iw.append(utils.log_iw(output, x, log_q, log_p, crop=model.crop_output))
+                log_iw.append(utils.log_iw(output, x, log_q, log_p, crop=model.module.crop_output))
 
             nelbo = torch.mean(torch.stack(nelbo, dim=1))
             log_p = torch.mean(torch.logsumexp(torch.stack(log_iw, dim=1), dim=1) - np.log(num_samples))
@@ -297,15 +290,15 @@ def create_generator_vae(model, batch_size, num_total_samples):
     num_iters = int(np.ceil(num_total_samples / batch_size))
     for i in range(num_iters):
         with torch.no_grad():
-            logits = model.sample(batch_size, 1.0)
-            output = model.decoder_output(logits)
+            logits = model.module.sample(batch_size, 1.0)
+            output = model.module.decoder_output(logits)
             output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.mean()
         yield output_img.float()
 
 
 def test_vae_fid(model, args, total_fid_samples):
     dims = 2048
-    rank = next(model.parameters()).device
+    rank = next(model.module.parameters()).device
     num_gpus = args.num_process_per_node * args.num_proc_node
     num_sample_per_gpu = int(np.ceil(total_fid_samples / num_gpus))
 
@@ -358,7 +351,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='mnist',
                         choices=['cifar10', 'mnist', 'omniglot', 'celeba_64', 'celeba_256',
                                  'imagenet_32', 'ffhq', 'lsun_bedroom_128', 'stacked_mnist',
-                                 'lsun_church_128', 'lsun_church_64'],
+                                 'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations_causal-64'],
                         help='which dataset to use')
     parser.add_argument('--data', type=str, default='/tmp/nasvae/data',
                         help='location of the data corpus')

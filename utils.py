@@ -307,6 +307,9 @@ def num_output(dataset):
         return 3 * size * size
     elif dataset == 'ffhq':
         return 3 * 256 * 256
+    elif dataset.startswith('identbox'):
+        size = int(dataset.split('-')[-1])
+        return 3 * size * size
     else:
         raise NotImplementedError
 
@@ -321,6 +324,9 @@ def get_input_size(dataset):
         return size
     elif dataset == 'ffhq':
         return 256
+    elif dataset.startswith('identbox'):
+        size = int(dataset.split('-')[-1])
+        return size
     else:
         raise NotImplementedError
 
