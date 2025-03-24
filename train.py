@@ -34,6 +34,10 @@ def main(rank, args):
     setup(rank, args.global_size)
     args.local_rank = rank % args.num_process_per_node
 
+    ### NEW CODE
+    args.arch_flag = 'vanilla'
+    ### NEW CODE
+
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -161,7 +165,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     model.train()
     rank = next(model.module.parameters()).device
     for step, x in enumerate(train_queue):
-        x = x[0] if not isinstance(x, torch.Tensor) else x
+        if not isinstance(x, torch.Tensor):
+            x = x[0]
+            y = x[1]
         x = x.to(rank)
 
         # change bit length
@@ -254,7 +260,9 @@ def test(valid_queue, model, num_samples, args, logging):
     model.eval()
     rank = next(model.module.parameters()).device
     for step, x in enumerate(valid_queue):
-        x = x[0] if not isinstance(x, torch.Tensor) else x
+        if not isinstance(x, torch.Tensor):
+            x = x[0]
+            y = x[1]
         x = x.to(rank)
 
         # change bit length
@@ -351,7 +359,8 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='mnist',
                         choices=['cifar10', 'mnist', 'omniglot', 'celeba_64', 'celeba_256',
                                  'imagenet_32', 'ffhq', 'lsun_bedroom_128', 'stacked_mnist',
-                                 'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations_causal-64'],
+                                 'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations_causal-64',
+                                 'concepts_mnist'],
                         help='which dataset to use')
     parser.add_argument('--data', type=str, default='/tmp/nasvae/data',
                         help='location of the data corpus')

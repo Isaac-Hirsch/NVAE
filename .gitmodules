@@ -1,0 +1,3 @@
+[submodule "concept_learning_template"]
+	path = concept_learning_template
+	url = https://github.com/Isaac-Hirsch/concept-learning-template.git

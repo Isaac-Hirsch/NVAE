@@ -18,7 +18,10 @@ import os
 import urllib
 from lmdb_datasets import LMDBDataset
 from thirdparty.lsun import LSUN
+
 from scripts.identBox.identBoxDataset import IdentBoxDataset, data_transforms_identbox
+import torch.nn as nn
+import pandas as pd
 
 
 class StackedMNIST(dset.MNIST):
@@ -57,7 +60,68 @@ class StackedMNIST(dset.MNIST):
 
         return img, target
 
+class ConceptsMNIST(Dataset):
+    """
+    ConceptsMNIST is a extension of MNIST dataset.
+    It has 7 concepts each of which is a replication of MNIST with a transformation
+    applied to the original MNIST images.
+    The transformations are:
+        obs:    original MNIST
+        scaled: scaled MNIST
+        shear:  sheared MNIST
+        shift:  shifted MNIST
+        swel:   swelled MNIST
+        thic:   thickened MNIST
+        thin:   thinned MNIST
+    """
+    def __init__(self, root, train=True, transform=None, target_transform=None,
+                 download=False):
+        super(ConceptsMNIST, self).__init__()
+        concepts = ("obs", "scaled", "shear", "shift", "swel", "thic", "thin")
+        csvs = [pd.read_csv(f"/home/ubuntu/gpu02/data/normalized_mnist_concepts/normalized_mnist_{concept}.csv", header=None) for concept in concepts]
+        uf = nn.Unflatten(-1, (1, 28, 28))
+        data_dict = {concept: uf(torch.tensor(d.values[:, :-2], dtype=torch.float32)) for d, concept in zip(csvs, concepts)}
 
+        train_frac = 0.8
+        train_size = int(train_frac * len(data_dict["obs"]))
+        
+        np.random.seed(0)
+        train_indices = np.random.choice(len(data_dict["obs"]), size=train_size, replace=False)
+        test_indices = np.setdiff1d(np.arange(len(data_dict["obs"])), train_indices)
+        if train:
+            self.data = {concept: data_dict[concept][train_indices] for concept in concepts}
+            self.data_size = train_size
+        else:
+            self.data = {concept: data_dict[concept][test_indices] for concept in concepts}
+            self.data_size = len(data_dict["obs"]) - train_size
+        self.transform = transform
+
+    def __getitem__(self, index):
+        concept = None
+        match index // self.data_size:
+            case 0:
+                concept = "obs"
+            case 1:
+                concept = "scaled"
+            case 2:
+                concept = "shear"
+            case 3:
+                concept = "shift"
+            case 4:
+                concept = "swel"
+            case 5:
+                concept = "thic"
+            case 6:
+                concept = "thin"
+            case _:
+                raise ValueError(f"Invalid index {index} for ConceptsMNIST")
+        img = self.data[concept][index % self.data_size]
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, concept
+    
+    def __len__(self):
+        return self.data_size * 7
 
 class Binarize(object):
     """ This class introduces a binarization transformation
@@ -214,6 +278,13 @@ def get_loaders_eval(dataset, args):
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
+    elif dataset == 'concepts_mnist':
+        num_classes = 7
+        train_transform, valid_transform = _data_transforms_concepts_mnist(args)
+        train_data = ConceptsMNIST(
+            root=args.data, train=True, download=True, transform=train_transform)
+        valid_data = ConceptsMNIST(
+            root=args.data, train=False, download=True, transform=valid_transform)
     else:
         raise NotImplementedError
 
@@ -225,7 +296,7 @@ def get_loaders_eval(dataset, args):
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size,
         shuffle=(train_sampler is None),
-        sampler=train_sampler, pin_memory=True, num_workers=2, drop_last=True)
+        sampler=train_sampler, pin_memory=True, num_workers=0, drop_last=True)
 
     valid_queue = torch.utils.data.DataLoader(
         valid_data, batch_size=args.batch_size,
@@ -277,6 +348,18 @@ def _data_transforms_stacked_mnist(args):
     valid_transform = transforms.Compose([
         transforms.Pad(padding=2),
         transforms.ToTensor()
+    ])
+
+    return train_transform, valid_transform
+
+def _data_transforms_concepts_mnist(args):
+    """Get data transforms for cifar10."""
+    train_transform = transforms.Compose([
+        transforms.Pad(padding=2),
+    ])
+
+    valid_transform = transforms.Compose([
+        transforms.Pad(padding=2),
     ])
 
     return train_transform, valid_transform

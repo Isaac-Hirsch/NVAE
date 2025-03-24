@@ -20,6 +20,8 @@ from utils import get_stride_for_cell_type, get_input_size, groups_per_scale
 from distributions import Normal, DiscMixLogistic, NormalDecoder
 from thirdparty.inplaced_sync_batchnorm import SyncBatchNormSwish
 
+from concept_learning_template.conceptualizer import conceptualizer
+
 CHANNEL_MULT = 2
 
 
@@ -192,9 +194,34 @@ class AutoEncoder(nn.Module):
         self.sr_v = {}
         self.num_power_iter = 4
 
+    ### NEW CODE
+        if args.arch_flag != "vanilla":
+            self.expressive_layer, self.causal_layer, self.unpool = conceptualizer(
+                args.eps_dim,
+                args.eps_width,
+                args.eps_depth,
+                args.c_dim,
+                args.c_width,
+                args.concepts,
+                args.decode_dim,
+                args.arch_flag,
+            )
+
+        self.arch_flag = args.arch_flag
+    
+    def conceptualize(self, z, batch_label: str):
+        # our module
+        epsilon = self.expressive_layer(z)
+        if self.arch_flag == "single-pooled-concept":
+            c = self.causal_layer(epsilon)
+        else:
+            c = self.causal_layer[batch_label](epsilon)
+        return self.unpool(c)
+    ### NEW CODE
+
     def init_stem(self):
         Cout = self.num_channels_enc
-        Cin = 1 if self.dataset in {'mnist', 'omniglot'} else 3
+        Cin = 1 if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'} else 3
         stem = Conv2D(Cin, Cout, 3, padding=1, bias=True)
         return stem
 
@@ -326,7 +353,7 @@ class AutoEncoder(nn.Module):
 
     def init_image_conditional(self, mult):
         C_in = int(self.num_channels_dec * mult)
-        if self.dataset in {'mnist', 'omniglot'}:
+        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'}:
             C_out = 1
         else:
             if self.num_mix_output == 1:
@@ -336,7 +363,7 @@ class AutoEncoder(nn.Module):
         return nn.Sequential(nn.ELU(),
                              Conv2D(C_in, C_out, 3, padding=1, bias=True))
 
-    def forward(self, x):
+    def forward(self, x, y=None):
         s = self.stem(2 * x - 1.0)
 
         # perform pre-processing
@@ -364,7 +391,6 @@ class AutoEncoder(nn.Module):
         dist = Normal(mu_q, log_sig_q)   # for the first approx. posterior
         z, _ = dist.sample()
         log_q_conv = dist.log_p(z)
-
         # apply normalizing flows
         nf_offset = 0
         for n in range(self.num_flows):
@@ -382,6 +408,11 @@ class AutoEncoder(nn.Module):
         log_p_conv = dist.log_p(z)
         all_p = [dist]
         all_log_p = [log_p_conv]
+
+        ### NEW CODE
+        if "vanilla" not in self.arch_flag:
+            z = self.conceptualize(z, y)
+        ### NEW CODE
 
         idx_dec = 0
         s = self.prior_ftr0.unsqueeze(0)
@@ -483,10 +514,11 @@ class AutoEncoder(nn.Module):
         return logits
 
     def decoder_output(self, logits):
-        if self.dataset in {'mnist', 'omniglot'}:
+        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'}:
             return Bernoulli(logits=logits)
         elif self.dataset in {'stacked_mnist', 'cifar10', 'celeba_64', 'celeba_256', 'imagenet_32', 'imagenet_64', 'ffhq',
-                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations_causal-64'}:
+                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations_causal-64'
+                              }:
             if self.num_mix_output == 1:
                 return NormalDecoder(logits, num_bits=self.num_bits)
             else:
