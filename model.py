@@ -21,6 +21,7 @@ from distributions import Normal, DiscMixLogistic, NormalDecoder
 from thirdparty.inplaced_sync_batchnorm import SyncBatchNormSwish
 
 from concept_learning_template.conceptualizer import conceptualizer
+from typing import Optional
 
 CHANNEL_MULT = 2
 
@@ -198,12 +199,13 @@ class AutoEncoder(nn.Module):
         if args.arch_flag != "vanilla":
             self.expressive_layer, self.causal_layer, self.unpool = conceptualizer(
                 args.eps_dim,
-                args.eps_width,
+                args.eps_in_width,
+                args.eps_out_width,
                 args.eps_depth,
                 args.c_dim,
                 args.c_width,
                 args.concepts,
-                args.decode_dim,
+                self.decode_dim,
                 args.arch_flag,
             )
 
@@ -363,7 +365,7 @@ class AutoEncoder(nn.Module):
         return nn.Sequential(nn.ELU(),
                              Conv2D(C_in, C_out, 3, padding=1, bias=True))
 
-    def forward(self, x, y=None):
+    def forward(self, x, batch_label=None):
         s = self.stem(2 * x - 1.0)
 
         # perform pre-processing
@@ -411,7 +413,7 @@ class AutoEncoder(nn.Module):
 
         ### NEW CODE
         if "vanilla" not in self.arch_flag:
-            z = self.conceptualize(z, y)
+            z = self.conceptualize(z, batch_label)
         ### NEW CODE
 
         idx_dec = 0
@@ -477,11 +479,16 @@ class AutoEncoder(nn.Module):
 
         return logits, log_q, log_p, kl_all, kl_diag
 
-    def sample(self, num_samples, t):
+    def sample(self, num_samples, t, batch_label=None):
         scale_ind = 0
         z0_size = [num_samples] + self.z0_size
         dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
         z, _ = dist.sample()
+
+        ### NEW CODE
+        if "vanilla" not in self.arch_flag:
+            z = self.conceptualize(z, batch_label)
+        ### NEW CODE
 
         idx_dec = 0
         s = self.prior_ftr0.unsqueeze(0)

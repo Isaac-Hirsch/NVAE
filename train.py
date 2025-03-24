@@ -34,10 +34,6 @@ def main(rank, args):
     setup(rank, args.global_size)
     args.local_rank = rank % args.num_process_per_node
 
-    ### NEW CODE
-    args.arch_flag = 'vanilla'
-    ### NEW CODE
-
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -453,6 +449,23 @@ if __name__ == '__main__':
                         help='address for master')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
+    ### NEW CODE
+    parser.add_argument('--arch_flag', type=str, default='vanilla',
+                        help='flag for architecture.')
+    parser.add_argument('--eps_dim', type=int, default=8,
+                        help='dimension of epsilon')
+    parser.add_argument('--eps_in_width', type=int, default=3,
+                        help='input width of epsilon')
+    parser.add_argument('--eps_out_width', type=int, default=1,
+                        help='output width of epsilon')
+    parser.add_argument('--eps_depth', type=int, default=2,
+                        help='depth of epsilon')
+    parser.add_argument('--c_dim', type=int, default=7,
+                        help='dimension of c')
+    parser.add_argument('--c_width', type=int, default=2,
+                        help='width of c')
+    ### NEW CODE
+
     args = parser.parse_args()
     args.save = args.root + '/eval-' + args.save
     utils.create_exp_dir(args.save)
