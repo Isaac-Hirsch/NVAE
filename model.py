@@ -199,9 +199,13 @@ class AutoEncoder(nn.Module):
     ### NEW CODE
         self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
         if args.arch_flag != "vanilla":
+            self.expressive_in = nn.Linear(
+                self.decode_dim,
+                args.eps_in_width * args.eps_dim,
+            )
             self.expressive_layer, self.causal_layer, self.unpool = conceptualizer(
                 args.eps_dim,
-                self.decode_dim // args.eps_dim,
+                args.eps_in_width,
                 args.eps_out_width,
                 args.eps_depth,
                 args.c_dim,
@@ -214,9 +218,12 @@ class AutoEncoder(nn.Module):
         self.arch_flag = args.arch_flag
     
     def conceptualize(self, z, batch_label: str):
-        shape = z.shape
         # our module
+        shape = z.shape
+        # Added to make the shapes work
         z = z.view(shape[0], -1)
+        z = self.expressive_in(z)
+
         epsilon = self.expressive_layer(z)
         if self.arch_flag == "single-pooled-concept":
             c = self.causal_layer(epsilon)

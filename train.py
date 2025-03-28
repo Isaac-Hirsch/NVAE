@@ -44,6 +44,12 @@ def main(rank, args):
 
     # Get data loaders.
     train_queue, valid_queue, num_classes = datasets.get_loaders(args)
+    ### NEW CODE
+
+    if num_classes > 1:
+        args.concepts = datasets.get_concepts(args)
+
+    ### NEW CODE
     args.num_total_iter = len(train_queue) * args.epochs
     warmup_iters = len(train_queue) * args.warmup_epochs
     swa_start = len(train_queue) * (args.epochs - 1)
@@ -53,7 +59,7 @@ def main(rank, args):
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.to(rank)
     ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
-    model = torch.compile(ddp_model)
+    model = ddp_model # torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -163,7 +169,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     for step, x in enumerate(train_queue):
         if not isinstance(x, torch.Tensor):
             x = x[0]
-            y = x[1]
+            label = x[1]
+        else:
+            label = None
         x = x.to(rank)
 
         # change bit length
@@ -177,7 +185,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast("cuda"):
-            logits, log_q, log_p, kl_all, kl_diag = model(x)
+            logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
 
             output = model.module.decoder_output(logits)
             kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
@@ -258,7 +266,9 @@ def test(valid_queue, model, num_samples, args, logging):
     for step, x in enumerate(valid_queue):
         if not isinstance(x, torch.Tensor):
             x = x[0]
-            y = x[1]
+            label = x[1]
+        else:
+            label = None
         x = x.to(rank)
 
         # change bit length
@@ -267,7 +277,7 @@ def test(valid_queue, model, num_samples, args, logging):
         with torch.no_grad():
             nelbo, log_iw = [], []
             for k in range(num_samples):
-                logits, log_q, log_p, kl_all, _ = model(x)
+                logits, log_q, log_p, kl_all, _ = model(x, batch_label=label)
                 output = model.module.decoder_output(logits)
                 recon_loss = utils.reconstruction_loss(output, x, crop=model.module.crop_output)
                 balanced_kl, _, _ = utils.kl_balancer(kl_all, kl_balance=False)
@@ -450,8 +460,9 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
     ### NEW CODE
-    parser.add_argument('--arch_flag', type=str, default='vanilla',
-                        help='flag for architecture.')
+    parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
+                        help='flag for architecture. Must be in [vanilla-obs, vanilla-pooled, concepts, single-pooled-concept]',
+                        choices=["vanilla-obs", "vanilla-pooled", "concepts", "single-pooled-concept"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')
     parser.add_argument('--eps_in_width', type=int, default=3,

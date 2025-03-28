@@ -9,6 +9,7 @@
 
 import numpy as np
 from PIL import Image
+import random
 import torch
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
@@ -118,10 +119,45 @@ class ConceptsMNIST(Dataset):
         img = self.data[concept][index % self.data_size]
         if self.transform is not None:
             img = self.transform(img)
+
         return img, concept
     
     def __len__(self):
         return self.data_size * 7
+
+class ConceptsMNISTSampler:
+    def __init__(self, dataset, num_concepts, batch_size, args):
+        self.batch_size = batch_size
+        self.total_samples = len(dataset)
+        self.samples_per_concept = self.total_samples // num_concepts
+        self.concepts = [i for i in range(num_concepts)]
+        self.dataset = dataset
+        self.args = args
+
+    def __iter__(self):
+        batches = []
+        for concept in self.concepts:
+            start = concept * self.samples_per_concept
+            stop = start + self.samples_per_concept
+            indicies = np.arange(start=start, stop=stop, dtype=int)
+            np.random.shuffle(indicies)
+            for i in range(0, self.samples_per_concept, self.batch_size):
+                batch = indicies[i:i + self.batch_size]
+                batches.append(batch)
+        np.random.shuffle(batches)
+        for i, batch in enumerate(batches):
+            if i % self.args.global_size == self.args.global_rank:
+                yield batch
+        
+    def __len__(self):
+        return (self.total_samples + self.batch_size - 1) // self.batch_size
+
+def dict_collate_fn(batch):
+    data = torch.stack(
+        [item[0][0] if isinstance(item[0], tuple) else item[0] for item in batch]
+    )
+    key = batch[0][1]  # All keys in the batch are the same
+    return data, key
 
 class Binarize(object):
     """ This class introduces a binarization transformation
@@ -285,6 +321,16 @@ def get_loaders_eval(dataset, args):
             root=args.data, train=True, download=True, transform=train_transform)
         valid_data = ConceptsMNIST(
             root=args.data, train=False, download=True, transform=valid_transform)
+        
+        if args.arch_flag == 'concepts':
+            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args.arch_flag)
+            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args.arch_flag)
+            train_queue = torch.utils.data.DataLoader(
+                train_data, sampler=train_sampler, pin_memory=True, num_workers=0, drop_last=True)
+            valid_queue = torch.utils.data.DataLoader(
+                valid_data, sampler=valid_sampler, pin_memory=True, num_workers=1, drop_last=False)
+            return train_queue, valid_queue, num_classes
+
     else:
         raise NotImplementedError
 
@@ -304,7 +350,6 @@ def get_loaders_eval(dataset, args):
         sampler=valid_sampler, pin_memory=True, num_workers=1, drop_last=False)
 
     return train_queue, valid_queue, num_classes
-
 
 def _data_transforms_cifar10(args):
     """Get data transforms for cifar10."""
