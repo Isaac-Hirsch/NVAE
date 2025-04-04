@@ -13,7 +13,7 @@ import random
 import torch
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from scipy.io import loadmat
 import os
 import urllib
@@ -125,7 +125,7 @@ class ConceptsMNIST(Dataset):
     def __len__(self):
         return self.data_size * 7
 
-class ConceptsMNISTSampler:
+class ConceptsMNISTSampler(Sampler):
     def __init__(self, dataset, num_concepts, batch_size, args):
         self.batch_size = batch_size
         self.total_samples = len(dataset)
@@ -154,7 +154,7 @@ class ConceptsMNISTSampler:
 
 def dict_collate_fn(batch):
     data = torch.stack(
-        [item[0][0] if isinstance(item[0], tuple) else item[0] for item in batch]
+        [item[0] for item in batch]
     )
     key = batch[0][1]  # All keys in the batch are the same
     return data, key
@@ -323,12 +323,12 @@ def get_loaders_eval(dataset, args):
             root=args.data, train=False, download=True, transform=valid_transform)
         
         if args.arch_flag == 'concepts':
-            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args.arch_flag)
-            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args.arch_flag)
+            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args)
+            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args)
             train_queue = torch.utils.data.DataLoader(
-                train_data, sampler=train_sampler, pin_memory=True, num_workers=0, drop_last=True)
+                train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             valid_queue = torch.utils.data.DataLoader(
-                valid_data, sampler=valid_sampler, pin_memory=True, num_workers=1, drop_last=False)
+                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
             return train_queue, valid_queue, num_classes
 
     else:
@@ -350,6 +350,14 @@ def get_loaders_eval(dataset, args):
         sampler=valid_sampler, pin_memory=True, num_workers=1, drop_last=False)
 
     return train_queue, valid_queue, num_classes
+
+def get_concepts(args) -> list[str]:
+    """
+    Get the list of concepts for the ConceptsMNIST dataset.
+    """
+    if args.dataset == 'concepts_mnist':
+        return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
+    return []
 
 def _data_transforms_cifar10(args):
     """Get data transforms for cifar10."""
@@ -401,10 +409,12 @@ def _data_transforms_concepts_mnist(args):
     """Get data transforms for cifar10."""
     train_transform = transforms.Compose([
         transforms.Pad(padding=2),
+        Binarize()
     ])
 
     valid_transform = transforms.Compose([
         transforms.Pad(padding=2),
+        Binarize()
     ])
 
     return train_transform, valid_transform

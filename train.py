@@ -58,8 +58,8 @@ def main(rank, args):
 
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.to(rank)
-    ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank)
-    model = ddp_model # torch.compile(ddp_model)
+    ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+    model = torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -168,8 +168,8 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     rank = next(model.module.parameters()).device
     for step, x in enumerate(train_queue):
         if not isinstance(x, torch.Tensor):
-            x = x[0]
             label = x[1]
+            x = x[0]
         else:
             label = None
         x = x.to(rank)
@@ -188,6 +188,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
 
             output = model.module.decoder_output(logits)
+
             kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
                                       args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
@@ -265,8 +266,8 @@ def test(valid_queue, model, num_samples, args, logging):
     rank = next(model.module.parameters()).device
     for step, x in enumerate(valid_queue):
         if not isinstance(x, torch.Tensor):
-            x = x[0]
             label = x[1]
+            x = x[0]
         else:
             label = None
         x = x.to(rank)
@@ -460,9 +461,10 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
     ### NEW CODE
+    #TODO update the help to match choices
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
                         help='flag for architecture. Must be in [vanilla-obs, vanilla-pooled, concepts, single-pooled-concept]',
-                        choices=["vanilla-obs", "vanilla-pooled", "concepts", "single-pooled-concept"])
+                        choices=["vanilla", "concepts"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')
     parser.add_argument('--eps_in_width', type=int, default=3,

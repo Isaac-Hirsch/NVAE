@@ -197,8 +197,9 @@ class AutoEncoder(nn.Module):
         self.num_power_iter = 4
 
     ### NEW CODE
+        self.args = args
         self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
-        if args.arch_flag != "vanilla":
+        if "vanilla" not in args.arch_flag:
             self.expressive_in = nn.Linear(
                 self.decode_dim,
                 args.eps_in_width * args.eps_dim,
@@ -501,6 +502,8 @@ class AutoEncoder(nn.Module):
 
         ### NEW CODE
         if "vanilla" not in self.arch_flag:
+            if batch_label is None:
+                batch_label = self.args.concepts[torch.randint(0, len(self.args.concepts), (1,)).item()]
             z = self.conceptualize(z, batch_label)
         ### NEW CODE
 
