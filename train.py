@@ -209,9 +209,10 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
             loss += norm_loss * wdn_coeff + bn_loss * wdn_coeff
 
-        grad_scalar.scale(loss).backward()
-        grad_scalar.step(cnn_optimizer)
-        grad_scalar.update()
+        grad_scalar.scale(loss / args.micro_batches).backward()
+        if (global_step + 1) % args.micro_batches == 0:
+            grad_scalar.step(cnn_optimizer)
+            grad_scalar.update()
         nelbo.update(loss.data, 1)
 
         if (global_step + 1) % 100 == 0:
@@ -374,6 +375,8 @@ if __name__ == '__main__':
     # optimization
     parser.add_argument('--batch_size', type=int, default=200,
                         help='batch size per GPU')
+    parser.add_argument('--micro_batches', type=int, default=1,
+                        help='batches per optimizer step')
     parser.add_argument('--learning_rate', type=float, default=1e-2,
                         help='init learning rate')
     parser.add_argument('--learning_rate_min', type=float, default=1e-4,
