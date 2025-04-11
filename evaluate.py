@@ -125,7 +125,11 @@ def main(rank, eval_args):
                 torch.cuda.synchronize()
                 start = time()
                 with autocast("cuda"):
-                    logits = model.module.sample(num_samples, eval_args.temp)
+                    if args.arch_flag == 'concepts' and args.dataset == 'concepts_mnist':
+                        concept_idx = ind % len(args.concepts)
+                        logits = model.module.sample(num_samples, eval_args.temp, batch_label=args.concepts[concept_idx])
+                    else:
+                        logits = model.module.sample(num_samples, eval_args.temp)
                 output = model.module.decoder_output(logits)
                 output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
                     else output.sample()
