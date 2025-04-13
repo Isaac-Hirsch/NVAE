@@ -20,7 +20,7 @@ from utils import get_stride_for_cell_type, get_input_size, groups_per_scale
 from distributions import Normal, DiscMixLogistic, NormalDecoder
 from thirdparty.inplaced_sync_batchnorm import SyncBatchNormSwish
 
-from concept_learning_template.conceptualizer import conceptualizer
+from concept_learning_template.conceptualizer import enc_conceptualizer, dec_conceptualizer
 from typing import Optional
 from functools import reduce
 
@@ -204,36 +204,40 @@ class AutoEncoder(nn.Module):
                 self.decode_dim,
                 args.eps_in_width * args.eps_dim,
             )
-            self.expressive_layer, self.causal_layer, self.unpool = conceptualizer(
-                args.eps_dim,
-                args.eps_in_width,
-                args.eps_out_width,
-                args.eps_depth,
-                args.c_dim,
-                args.c_width,
-                args.concepts,
-                self.decode_dim,
-                args.arch_flag,
+            self.ivn_eps, self.expressive_layer, self.causal_layer, self.unpool = (
+                dec_conceptualizer(
+                    args.eps_dim,
+                    args.eps_in_width,
+                    args.eps_out_width,
+                    args.eps_depth,
+                    args.c_dim,
+                    args.c_width,
+                    args.concepts,
+                    self.decode_dim,
+                    args.arch_flag
+                )
             )
 
         self.arch_flag = args.arch_flag
     
     def conceptualize(self, z, batch_label: str):
         # our module
-        shape = z.shape
-        # Added to make the shapes work
-        z = z.view(shape[0], -1)
+        z = torch.flatten(z, start_dim=1)
         z = self.expressive_in(z)
 
+        activation = nn.GELU()
+        if self.arch_flag == "single-pooled-concept":
+            z = self.ivn_eps(z, ["obs"])
+        else:
+            z = self.ivn_eps(z, [batch_label])
+        z = activation(z)
         epsilon = self.expressive_layer(z)
         if self.arch_flag == "single-pooled-concept":
-            c = self.causal_layer(epsilon)
+            c = self.causal_layer(epsilon, ["obs"])
         else:
-            c = self.causal_layer[batch_label](epsilon)
-
+            c = self.causal_layer(epsilon, [batch_label])
         c = self.unpool(c)
-
-        return c.view(shape)
+        return torch.unflatten(c, dim=1, sizes=self.z0_size)
     ### NEW CODE
 
     def init_stem(self):
