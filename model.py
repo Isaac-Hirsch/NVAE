@@ -20,9 +20,11 @@ from utils import get_stride_for_cell_type, get_input_size, groups_per_scale
 from distributions import Normal, DiscMixLogistic, NormalDecoder
 from thirdparty.inplaced_sync_batchnorm import SyncBatchNormSwish
 
-from concept_learning_template.conceptualizer import conceptualizer
+from concept_learning_template.conceptualizer import enc_conceptualizer, dec_conceptualizer
 from typing import Optional
 from functools import reduce
+
+from typing import Union, List, Tuple
 
 CHANNEL_MULT = 2
 
@@ -200,40 +202,48 @@ class AutoEncoder(nn.Module):
         self.args = args
         self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
         if "vanilla" not in args.arch_flag:
-            self.expressive_in = nn.Linear(
-                self.decode_dim,
-                args.eps_in_width * args.eps_dim,
+            self.expressive_in = nn.Conv2d(
+                in_channels=2 * self.z0_size[0],
+                out_channels=2 * args.eps_dim * args.eps_in_width,
+                kernel_size=1, padding=0, bias=True
             )
-            self.expressive_layer, self.causal_layer, self.unpool = conceptualizer(
-                args.eps_dim,
-                args.eps_in_width,
-                args.eps_out_width,
-                args.eps_depth,
-                args.c_dim,
-                args.c_width,
-                args.concepts,
-                self.decode_dim,
-                args.arch_flag,
+            self.ivn_eps, self.expressive_layer, self.causal_layer, self.unpool = (
+                dec_conceptualizer(
+                    args.eps_dim,
+                    reduce(lambda x, y: x * y, self.z0_size[1:]) * args.eps_in_width,
+                    args.eps_out_width,
+                    args.eps_depth,
+                    args.c_dim,
+                    args.c_width,
+                    args.concepts,
+                    self.decode_dim,
+                    args.arch_flag
+                )
             )
 
         self.arch_flag = args.arch_flag
     
-    def conceptualize(self, z, batch_label: str):
+    def conceptualize(self, z, batch_label: Union[str, List[str], Tuple[str, ...]]):
         # our module
-        shape = z.shape
-        # Added to make the shapes work
-        z = z.view(shape[0], -1)
-        z = self.expressive_in(z)
+        if isinstance(batch_label, str):
+            batch_label = [batch_label]
 
+        z = torch.flatten(z, start_dim=1)
+        activation = nn.GELU()
+        if self.arch_flag == "single-pooled-concept":
+            z = self.ivn_eps(z, ["obs"])
+        else:
+            z = self.ivn_eps(z, batch_label)
+        z = activation(z)
         epsilon = self.expressive_layer(z)
         if self.arch_flag == "single-pooled-concept":
-            c = self.causal_layer(epsilon)
+            c = self.causal_layer(epsilon, ["obs"])
         else:
-            c = self.causal_layer[batch_label](epsilon)
-
+            c = self.causal_layer(epsilon, batch_label)
         c = self.unpool(c)
-
-        return c.view(shape)
+        if torch.sum(torch.isnan(c)) > 0:
+            print("NaN in conceptualized c")
+        return torch.unflatten(c, dim=1, sizes=self.z0_size)
     ### NEW CODE
 
     def init_stem(self):
@@ -404,6 +414,8 @@ class AutoEncoder(nn.Module):
         idx_dec = 0
         ftr = self.enc0(s)                            # this reduces the channel dimension
         param0 = self.enc_sampler[idx_dec](ftr)
+        if "vanilla" not in self.arch_flag:
+            param0 = self.expressive_in(param0)
         mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)
         dist = Normal(mu_q, log_sig_q)   # for the first approx. posterior
         z, _ = dist.sample()
@@ -496,7 +508,10 @@ class AutoEncoder(nn.Module):
 
     def sample(self, num_samples, t, batch_label=None):
         scale_ind = 0
-        z0_size = [num_samples] + self.z0_size
+        if "vanilla" not in self.arch_flag:
+            z0_size = [num_samples, self.args.eps_dim * self.args.eps_in_width] + self.z0_size[1:]
+        else:
+            z0_size = [num_samples] + self.z0_size
         dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
         z, _ = dist.sample()
 

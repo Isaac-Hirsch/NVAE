@@ -59,7 +59,7 @@ def main(rank, args):
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.to(rank)
     ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    model = torch.compile(ddp_model)
+    model = ddp_model #torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
@@ -183,7 +183,6 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
 
-        cnn_optimizer.zero_grad()
         with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
 
@@ -213,6 +212,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
         if (global_step + 1) % args.micro_batches == 0:
             grad_scalar.step(cnn_optimizer)
             grad_scalar.update()
+            cnn_optimizer.zero_grad()
         nelbo.update(loss.data, 1)
 
         if (global_step + 1) % 100 == 0:
