@@ -152,6 +152,69 @@ class ConceptsMNISTSampler(Sampler):
     def __len__(self):
         return (self.total_samples + self.batch_size - 1) // self.batch_size
 
+class ConceptsCeleba(Dataset):
+    def __init__(self, root, split: str='train', transform=None,
+                 download=False, concepts=None):
+        assert split in ['train', 'valid', 'test', 'all']
+        super(ConceptsCeleba, self).__init__()
+        self.data = dset.celeba.CelebA(root=root, split=split, target_type='attr', download=False, transform=transform)
+
+        df = pd.read_csv(os.path.join(root, 'celeba', 'list_attr_celeba.txt'), sep='\s+', skiprows=1)
+        df_split = pd.read_csv(os.path.join(root, 'celeba', 'list_eval_partition.txt'), sep='\s+')
+        df = pd.merge(df, df_split, left_index=True, right_index=True)
+        if split == 'train':
+            df = df[df['split'] == 0]
+        elif split == 'valid':
+            df = df[df['split'] == 1]
+        elif split == 'test':
+            df = df[df['split'] == 2]
+
+        df = df.drop(['split'], axis=1)
+
+        self.concept_indicies = {}
+        self.concepts = self.concepts
+        for concept in concepts:
+            concept_df = df[concept] == 1
+            self.concept_indicies[concept] = concept_df[concept_df].index.tolist()
+        self.length = sum(len(v) for v in self.concept_indicies.values())
+
+    def __getitem__(self, index):
+        images_seen = 0
+        for concept, indicies in self.concept_indicies.items():
+            if index < images_seen + len(indicies):
+                img, target = self.data[indicies[index - images_seen]]
+                return img, concept
+            images_seen += len(indicies)
+        raise IndexError(f"Index {index} out of range for ConceptsCeleba64 dataset")
+    
+    def __len__(self):
+        return self.length
+
+class ConceptsCelebaSampler(Sampler):
+    def __init__(self, dataset, batch_size, args):
+        self.batch_size = batch_size
+        self.total_samples = len(dataset)
+        self.concepts = dataset.concepts
+        self.dataset = dataset
+        self.args = args
+        self.concept_indicies = dataset.concept_indicies
+
+    def __iter__(self):
+        batches = []
+        for concept in self.concepts:
+            indicies = self.concept_indicies[concept]
+            np.random.shuffle(indicies)
+            for i in range(0, len(indicies), self.batch_size):
+                batch = indicies[i:i + self.batch_size]
+                batches.append(batch)
+        np.random.shuffle(batches)
+        for i, batch in enumerate(batches):
+            if i % self.args.global_size == self.args.global_rank:
+                yield batch
+    
+    def __len__(self):
+        return (self.total_samples + self.batch_size - 1) // self.batch_size
+
 def dict_collate_fn(batch):
     data = torch.stack(
         [item[0] for item in batch]
@@ -259,20 +322,36 @@ def get_loaders_eval(dataset, args):
         train_data = OMNIGLOT(train_data, train_transform)
         valid_data = OMNIGLOT(valid_data, valid_transform)
     elif dataset.startswith('celeba'):
-        if dataset == 'celeba_64':
-            resize = 64
-            num_classes = 40
-            train_transform, valid_transform = _data_transforms_celeba64(resize)
-            train_data = dset.celeba.CelebA(root=args.data, split="train", target_type='attr', download=False, transform=train_transform)
-            valid_data = dset.celeba.CelebA(root=args.data, split="valid", target_type='attr', download=False, transform=valid_transform)
-        elif dataset in {'celeba_256'}:
-            num_classes = 1
-            resize = int(dataset.split('_')[1])
-            train_transform, valid_transform = _data_transforms_generic(resize)
-            train_data = LMDBDataset(root=args.data, name='celeba', train=True, transform=train_transform)
-            valid_data = LMDBDataset(root=args.data, name='celeba', train=False, transform=valid_transform)
+        if 'concepts' not in dataset:
+            if dataset == 'celeba_64':
+                resize = 64
+                num_classes = 40
+                train_transform, valid_transform = _data_transforms_celeba64(resize)
+                train_data = dset.celeba.CelebA(root=args.data, split="train", target_type='attr', download=False, transform=train_transform)
+                valid_data = dset.celeba.CelebA(root=args.data, split="valid", target_type='attr', download=False, transform=valid_transform)
+            elif dataset in {'celeba_256'}:
+                num_classes = 1
+                resize = int(dataset.split('_')[1])
+                train_transform, valid_transform = _data_transforms_generic(resize)
+                train_data = LMDBDataset(root=args.data, name='celeba', train=True, transform=train_transform)
+                valid_data = LMDBDataset(root=args.data, name='celeba', train=False, transform=valid_transform)
+            else:
+                raise NotImplementedError
         else:
-            raise NotImplementedError
+            resize = 64
+            num_classes = 10
+            concepts = ['Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+            train_transform, valid_transform = _data_transforms_celeba64(resize)
+            train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
+            valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
+            if args.arch_flag == 'concepts':
+                train_sampler = ConceptsCelebaSampler(train_data, args.batch_size, args)
+                valid_sampler = ConceptsCelebaSampler(valid_data, args.batch_size, args)
+                train_queue = torch.utils.data.DataLoader(
+                    train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
+                valid_queue = torch.utils.data.DataLoader(
+                    valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
+                return train_queue, valid_queue, num_classes
     elif dataset.startswith('lsun'):
         if dataset.startswith('lsun_bedroom'):
             resize = int(dataset.split('_')[-1])
@@ -357,6 +436,8 @@ def get_concepts(args) -> list[str]:
     """
     if args.dataset == 'concepts_mnist':
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
+    elif args.dataset.startswith('celeba_concepts'):
+        concepts = ['Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
     return []
 
 def _data_transforms_cifar10(args):
