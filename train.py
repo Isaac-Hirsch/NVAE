@@ -59,7 +59,7 @@ def main(rank, args):
     uncomp_model = AutoEncoder(args, writer, arch_instance)
     uncomp_model = uncomp_model.to(rank)
     ddp_model = DDP(uncomp_model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    model = torch.compile(ddp_model)
+    model = ddp_model #torch.compile(ddp_model)
 
     logging.info('args = %s', args)
     logging.info('param size = %fM ', utils.count_parameters_in_M(uncomp_model))
