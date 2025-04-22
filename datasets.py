@@ -156,11 +156,12 @@ class ConceptsCeleba(Dataset):
     def __init__(self, root, split: str='train', transform=None,
                  download=False, concepts=None):
         assert split in ['train', 'valid', 'test', 'all']
+        assert concepts[0] == 'obs'
         super(ConceptsCeleba, self).__init__()
-        self.data = dset.celeba.CelebA(root=root, split=split, target_type='attr', download=False, transform=transform)
+        self.data = dset.celeba.CelebA(root=root, split=split, target_type='attr', download=download, transform=transform)
 
         df = pd.read_csv(os.path.join(root, 'celeba', 'list_attr_celeba.txt'), sep='\s+', skiprows=1)
-        df_split = pd.read_csv(os.path.join(root, 'celeba', 'list_eval_partition.txt'), sep='\s+')
+        df_split = pd.read_csv(os.path.join(root, 'celeba', 'list_eval_partition.txt'), sep='\s+', names=['split'], header=None)
         df = pd.merge(df, df_split, left_index=True, right_index=True)
         if split == 'train':
             df = df[df['split'] == 0]
@@ -170,22 +171,31 @@ class ConceptsCeleba(Dataset):
             df = df[df['split'] == 2]
 
         df = df.drop(['split'], axis=1)
+        df.reset_index(inplace=True, drop=True)
 
-        self.concept_indicies = {}
-        self.concepts = self.concepts
-        for concept in concepts:
+        self.concept_indices = {}
+        self.concepts = concepts
+
+        all_indicies = {i for i in range(len(self.data))}
+        used_indicies = set()
+
+        for concept in concepts[1:]:
             concept_df = df[concept] == 1
-            self.concept_indicies[concept] = concept_df[concept_df].index.tolist()
-        self.length = sum(len(v) for v in self.concept_indicies.values())
+            self.concept_indices[concept] = concept_df[concept_df].index.tolist()
+            used_indicies = used_indicies.union(set(self.concept_indices[concept]))
+        
+        self.concept_indices['obs'] = list(all_indicies - used_indicies)
+        
+        self.length = sum(len(v) for v in self.concept_indices.values())
 
     def __getitem__(self, index):
         images_seen = 0
-        for concept, indicies in self.concept_indicies.items():
+        for concept, indicies in self.concept_indices.items():
             if index < images_seen + len(indicies):
                 img, target = self.data[indicies[index - images_seen]]
                 return img, concept
             images_seen += len(indicies)
-        raise IndexError(f"Index {index} out of range for ConceptsCeleba64 dataset")
+        raise IndexError(f"Index {index} out of range for Concepts_Celeba_64 dataset")
     
     def __len__(self):
         return self.length
@@ -197,16 +207,18 @@ class ConceptsCelebaSampler(Sampler):
         self.concepts = dataset.concepts
         self.dataset = dataset
         self.args = args
-        self.concept_indicies = dataset.concept_indicies
+        self.concept_indices = dataset.concept_indices
 
     def __iter__(self):
         batches = []
+        images_seen = 0
         for concept in self.concepts:
-            indicies = self.concept_indicies[concept]
+            indicies = np.arange(start=images_seen, stop=images_seen + len(self.concept_indices[concept]), dtype=int)
             np.random.shuffle(indicies)
-            for i in range(0, len(indicies), self.batch_size):
+            for i in range(0, len(self.concept_indices[concept]), self.batch_size):
                 batch = indicies[i:i + self.batch_size]
                 batches.append(batch)
+            images_seen += len(indicies)
         np.random.shuffle(batches)
         for i, batch in enumerate(batches):
             if i % self.args.global_size == self.args.global_rank:
@@ -340,7 +352,7 @@ def get_loaders_eval(dataset, args):
         else:
             resize = 64
             num_classes = 10
-            concepts = ['Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+            concepts = ['obs', 'Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
             train_transform, valid_transform = _data_transforms_celeba64(resize)
             train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
             valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
@@ -437,7 +449,7 @@ def get_concepts(args) -> list[str]:
     if args.dataset == 'concepts_mnist':
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
-        concepts = ['Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+        return ['obs', 'Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
     return []
 
 def _data_transforms_cifar10(args):
