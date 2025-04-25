@@ -213,7 +213,7 @@ def main(rank, eval_args):
         num_samples = 100                                      # sampling batch size
         num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
-        if args.arch_flag == 'concepts' and args.dataset == 'concepts_mnist':
+        if args.arch_flag == 'concepts':
             if eval_args.eval_mode == 'sample_combo':
                 concepts = (c for c in args.concepts if c != "obs")
                 combos = list(combo for combo in combinations(concepts, 2))
@@ -228,7 +228,7 @@ def main(rank, eval_args):
                 torch.cuda.synchronize()
                 start = time()
                 with autocast("cuda"):
-                    if args.arch_flag == 'concepts' and args.dataset == 'concepts_mnist':
+                    if args.arch_flag == 'concepts':
                         combo = combos[ind % len(combos)]
                         logging.info('combo: %s', combo)
                         logits = model.module.sample(num_samples, eval_args.temp, batch_label=combo)

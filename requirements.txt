@@ -1,10 +1,16 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
 torch==2.5.0
 torchvision==0.20.0
 pillow
-matplotlib
 tensorboard
 tensorboardX
 lmdb
 tfrecord
 scipy
---index-url https://download.pytorch.org/whl/cu124
+matplotlib==3.10.1
+torchinfo==1.8.0
+virtualenv
+seaborn
+pandas
+numpy
+tqdm
