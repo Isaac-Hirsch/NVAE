@@ -1,3 +1,6 @@
-pip3 install zenodo_get
+#! /usr/bin/bash
+
+pip install --user 'setuptools<71.0.0'
+pip install zenodo_get
 nohup zenodo_get 10.5281/zenodo.7699778 > 3dBox1.log 2>&1 &
 nohup zenodo_get 10.5281/zenodo.7699772 > 3dBox2.log 2>&1 &

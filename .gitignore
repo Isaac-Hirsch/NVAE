@@ -3,3 +3,8 @@ visualizations/
 .run/
 *.pyc
 *.pdf
+
+scripts/identBox/__MACOSX
+*.log
+scripts/identBox/unzip.sh
+*.ipynb
