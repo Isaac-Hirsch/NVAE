@@ -512,7 +512,7 @@ class AutoEncoder(nn.Module):
             z0_size = [num_samples, self.args.eps_dim * self.args.eps_in_width] + self.z0_size[1:]
         else:
             z0_size = [num_samples] + self.z0_size
-        if dist is not None:
+        if z is None:
             dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
             z, _ = dist.sample()
 

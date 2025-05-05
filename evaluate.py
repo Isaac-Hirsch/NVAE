@@ -117,11 +117,20 @@ def main(rank, eval_args):
         fid = test_vae_fid(model.module, args, total_fid_samples=50000)
         logging.info('fid is %f' % fid)
     elif eval_args.eval_mode == 'dag':
-        get_dag(logging, model, args, eval_args)
+        model = model.eval()
+        with torch.no_grad():
+            get_dag(logging, model, args, eval_args)
     elif eval_args.eval_mode == 'sample_constant_noise':
-        for ind in range(num_iter):     # sampling is repeated.
-            image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
-            sample_constant_noise(logging, model, args, eval_args, image_name=image_name, num_samples=100, temp=eval_args.temp)
+        model = model.eval()
+        with torch.no_grad():
+
+            bn_eval_mode = not eval_args.readjust_bn
+            set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
+
+            num_iter = 100
+            for ind in range(num_iter):     # sampling is repeated.
+                image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
+                sample_constant_noise(logging, model, args, eval_args, image_name=image_name, temp=eval_args.temp)
     else:
         bn_eval_mode = not eval_args.readjust_bn
         total_samples = 50000 // eval_args.world_size          # num images per gpu
@@ -183,7 +192,8 @@ if __name__ == '__main__':
                         help='location of the checkpoint')
     parser.add_argument('--save', type=str, default='/tmp/expr',
                         help='location of the checkpoint')
-    parser.add_argument('--eval_mode', type=str, default='sample', choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag'],
+    parser.add_argument('--eval_mode', type=str, default='sample', \
+                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise'],
                         help='evaluation mode. you can choose between sample or evaluate.')
     parser.add_argument('--eval_on_train', action='store_true', default=False,
                         help='Settings this to true will evaluate the model on training data.')

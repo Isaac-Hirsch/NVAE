@@ -137,7 +137,6 @@ def sample_constant_noise(
         args,
         eval_args,
         image_name: str,
-        num_samples: int = 8,
         temp: float = 1.0,
     ) -> None:
     """
@@ -147,6 +146,8 @@ def sample_constant_noise(
         logging: Logger object for logging information.
         model: The model containing the causal layer.
         args: Argument parser containing model and dataset configurations.
+        eval_args: Argument parser containing evaluation configurations.
+        image_name: Name of the image file to save.
         temp: Temperature for sampling.
     
     Returns:
@@ -157,39 +158,51 @@ def sample_constant_noise(
     assert 'concept' in args.arch_flag, 'Constant noise is only supported for concept models.'
 
     concepts = args.concepts
-    num_concepts = len(concepts)
-    assert num_concepts > 1, 'Constant noise is only supported for models with more than one concept.'
+    num_concepts = len(concepts) - 1 # Exclude 'obs' concept
+    assert num_concepts > 0, 'Constant noise is only supported for models with more than one concept.'
 
-    z0_size = [num_samples] + model.z0_size
+    num_samples = 1
+    z0_size = [num_samples, model.module.args.eps_dim * model.module.args.eps_in_width] + model.module.z0_size[1:]
     dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=temp)
     z, _ = dist.sample()
 
-    plt, axes = plt.subplots(num_samples, num_concepts, figsize=(num_concepts * 2, num_samples * 2))
+    fig, axes = plt.subplots(num_concepts, num_concepts, figsize=(num_concepts * 3, num_concepts * 3), squeeze=False)
 
-    for i, concept in enumerate(concepts):
-        logits = model.module.sample(
-            num_samples=num_samples,
-            t=temp,
-            batch_label=concept,
-            z=z,
-        )
+    # Combines every pair of concepts. Does not include obs.
+    for i, concept_1 in enumerate(concepts[1:]):
+        for j, concept_2 in enumerate(concepts[1:]):
 
-        logits = logits.cpu().detach()
+            batch_label = [concept_1, concept_2] if concept_1 != concept_2 else [concept_1,]
 
-        output = model.module.decoder_output(logits)
-        output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
-                    else output.sample()
-        
-        for j in range(num_samples):
-            axes[j, i].imshow(output_img[j].permute(1, 2, 0).cpu().numpy())
-            axes[j, i].axis('off')
-        
-        axes[-1, i].set_xlabel(concept, fontsize=12)
+            logits = model.module.sample(
+                num_samples=num_samples,
+                t=temp,
+                batch_label=batch_label,
+                z=z,
+            )
+
+            output = model.module.decoder_output(logits)
+            output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
+                        else output.sample()
+            output_img = output_img[0]
+            axes[i, j].imshow(output_img.permute(1, 2, 0).detach().cpu().numpy())
+            axes[i, j].axis('off')
+
+    for i, concept in enumerate(concepts[1:]):
+        axes[-1, i].axis('on')
+        axes[-1, i].set_xticks([])
+        axes[-1, i].set_yticks([])
+        axes[-1, i].set_xlabel(concept, fontsize=24)
+    
+        axes[i, 0].axis('on')
+        axes[i, 0].set_xticks([])
+        axes[i, 0].set_yticks([])
+        axes[i, 0].set_ylabel(concept, fontsize=24)
     
     plt.tight_layout()
     file_path = os.path.join(eval_args.save, image_name)
     logging.info('Saving constant noise samples at %s', file_path)
     if not os.path.exists(eval_args.save):
         os.makedirs(eval_args.save)
-    plt.savefig(file_path, dpi=150, bbox_inches="tight")
+    plt.savefig(file_path, dpi=150)
     plt.close()
