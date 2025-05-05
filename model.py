@@ -506,14 +506,15 @@ class AutoEncoder(nn.Module):
 
         return logits, log_q, log_p, kl_all, kl_diag
 
-    def sample(self, num_samples, t, batch_label=None):
+    def sample(self, num_samples, t, batch_label=None, z=None):
         scale_ind = 0
         if "vanilla" not in self.arch_flag:
             z0_size = [num_samples, self.args.eps_dim * self.args.eps_in_width] + self.z0_size[1:]
         else:
             z0_size = [num_samples] + self.z0_size
-        dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
-        z, _ = dist.sample()
+        if dist is not None:
+            dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
+            z, _ = dist.sample()
 
         ### NEW CODE
         if "vanilla" not in self.arch_flag:
@@ -556,8 +557,8 @@ class AutoEncoder(nn.Module):
         if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'}:
             return Bernoulli(logits=logits)
         elif self.dataset in {'stacked_mnist', 'cifar10', 'celeba_64', 'celeba_256', 'imagenet_32', 'imagenet_64', 'ffhq',
-                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations_causal-64',
-                              'celeba_concepts_64',
+                              'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations-64',
+                              'celeba_concepts_64', '3DIdent_concepts-64'
                               }:
             if self.num_mix_output == 1:
                 return NormalDecoder(logits, num_bits=self.num_bits)

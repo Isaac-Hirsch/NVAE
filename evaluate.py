@@ -28,6 +28,8 @@ from train import test, init_processes, test_vae_fid
 import networkx as nx
 from itertools import combinations
 
+from evaulate_concepts import get_dag, sample_constant_noise
+
 def set_bn(model, bn_eval_mode, num_samples=1, t=1.0, iter=100):
     if bn_eval_mode:
         model.eval()
@@ -115,98 +117,11 @@ def main(rank, eval_args):
         fid = test_vae_fid(model.module, args, total_fid_samples=50000)
         logging.info('fid is %f' % fid)
     elif eval_args.eval_mode == 'dag':
-        logging.info('evaluating DAG')
-        assert 'concept' in args.arch_flag, 'DAG is only supported for concept models.'
-        model.eval()
-        c = model.module.causal_layer
-        obs_adj = (
-            c.pooler(c.obs_weight.detach().unsqueeze(0).unsqueeze(0)).squeeze(0).squeeze(0)
-        )
-        ivn_adj = (
-            c.pooler(c.ivn_weight.detach().unsqueeze(0).unsqueeze(0)).squeeze(0).squeeze(0)
-        )
-        adj = torch.minimum(obs_adj, ivn_adj)
-
-        # use single threshold to exract maximal DAG
-        weighted_dag = adj
-        weighted_dag.fill_diagonal_(0)
-        weighted_dag = weighted_dag.cpu().numpy()
-        threshs = weighted_dag[weighted_dag > 0].flatten()
-        threshs.sort()
-        for thresh in threshs:
-            thresh_dag = nx.DiGraph(weighted_dag >= thresh)
-            if nx.is_directed_acyclic_graph(thresh_dag):
-                break
-
-        # first get digraph, then maximal acyclic subgraph
-        digraph = (adj > adj.T).to(bool)
-        weighted_digraph = torch.zeros_like(adj)
-        weighted_digraph[digraph] = adj[digraph]
-        weighted_digraph = weighted_digraph.cpu().numpy()
-
-        threshs = weighted_digraph[weighted_digraph > 0].flatten()
-        threshs.sort()
-        for thresh in threshs:
-            acyclic_digraph = nx.DiGraph(weighted_digraph >= thresh)
-            if nx.is_directed_acyclic_graph(acyclic_digraph):
-                break
-
-        # Plot the three DiGraphs
-        # Create a figure with three subplots side by side
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-        labels = [c for c in args.concepts if c != "obs"]
-        mapping = {i: label for i, label in enumerate(labels)}
-
-        # Plot each graph in its respective subplot
-        thresh_dag = nx.relabel_nodes(thresh_dag, mapping)
-        pos1 = nx.spring_layout(thresh_dag)
-        nx.draw(
-            thresh_dag,
-            pos1,
-            ax=ax1,
-            with_labels=True,
-            node_color="lightblue",
-            node_size=500,
-            arrows=True,
-        )
-        ax1.set_title("single-threshold DAG")
-
-        digraph = nx.DiGraph(digraph.cpu().numpy())
-        digraph = nx.relabel_nodes(digraph, mapping)
-        pos2 = nx.spring_layout(digraph)
-        nx.draw(
-            digraph,
-            pos2,
-            ax=ax2,
-            with_labels=True,
-            node_color="lightgreen",
-            node_size=500,
-            arrows=True,
-        )
-        ax2.set_title("DiGraph")
-
-        acyclic_digraph = nx.relabel_nodes(acyclic_digraph, mapping)
-        pos3 = nx.spring_layout(acyclic_digraph)
-        nx.draw(
-            acyclic_digraph,
-            pos3,
-            ax=ax3,
-            with_labels=True,
-            node_color="lightpink",
-            node_size=500,
-            arrows=True,
-        )
-        ax3.set_title("maximal acyclic DiGraph")
-
-        plt.tight_layout()
-        dir_path = f"{eval_args.save}/dags"
-        logging.info('Saving DAGs at %s', dir_path)
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-        plt.savefig(f"{dir_path}/dags.png", dpi=150, bbox_inches="tight")
-        plt.close()
-
+        get_dag(logging, model, args, eval_args)
+    elif eval_args.eval_mode == 'sample_constant_noise':
+        for ind in range(num_iter):     # sampling is repeated.
+            image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
+            sample_constant_noise(logging, model, args, eval_args, image_name=image_name, num_samples=100, temp=eval_args.temp)
     else:
         bn_eval_mode = not eval_args.readjust_bn
         total_samples = 50000 // eval_args.world_size          # num images per gpu

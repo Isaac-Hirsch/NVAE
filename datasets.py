@@ -20,7 +20,8 @@ import urllib
 from lmdb_datasets import LMDBDataset
 from thirdparty.lsun import LSUN
 
-from scripts.identBox.identBoxDataset import IdentBoxDataset, data_transforms_identbox
+from scripts.identBox.identBoxDataset import IdentBoxDataset, data_transforms_identbox, \
+    ConceptsIdentBoxDataset, ConceptsIdentBoxSampler
 import torch.nn as nn
 import pandas as pd
 
@@ -405,6 +406,28 @@ def get_loaders_eval(dataset, args):
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
+    elif dataset.startswith('3DIdent_concepts'):
+        num_classes = 7
+        concepts = ['obs', 'bg_1', 'bg_3', 'obj_2', 'obj_8', 'sl_3', 'sl_7']
+        resize = int(dataset.split('-')[1])
+        train_transform, valid_transform = data_transforms_identbox(resize)
+        train_data = ConceptsIdentBoxDataset(data_dir=args.data,
+                                                train=True,
+                                                concepts=concepts,
+                                                transform=train_transform)
+        valid_data = ConceptsIdentBoxDataset(data_dir=args.data,
+                                                train=False,
+                                                concepts=concepts,
+                                                transform=valid_transform)
+        if args.arch_flag == 'concepts':
+            train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
+            valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
+            train_queue = torch.utils.data.DataLoader(
+                train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
+            valid_queue = torch.utils.data.DataLoader(
+                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
+            return train_queue, valid_queue, num_classes
+        
     elif dataset == 'concepts_mnist':
         num_classes = 7
         train_transform, valid_transform = _data_transforms_concepts_mnist(args)
@@ -450,6 +473,8 @@ def get_concepts(args) -> list[str]:
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
         return ['obs', 'Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+    elif args.dataset.startswith('3DIdent_concepts'):
+        return ['obs', 'bg_1', 'bg_3', 'obj_2', 'obj_8', 'sl_3', 'sl_7']
     return []
 
 def _data_transforms_cifar10(args):
