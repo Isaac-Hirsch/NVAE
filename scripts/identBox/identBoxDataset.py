@@ -116,8 +116,8 @@ class ConceptsIdentBoxSampler(Sampler):
         for i, concept in enumerate(self.concepts):
             indicies = np.arange(start=images_seen, stop=images_seen + len(self.data_list[i]), dtype=int)
             np.random.shuffle(indicies)
-            for i in range(0, len(indicies), self.batch_size):
-                batch = indicies[i:i + self.batch_size]
+            for j in range(0, len(indicies), self.batch_size):
+                batch = indicies[j:j + self.batch_size]
                 batches.append(batch)
             images_seen += len(indicies)
         np.random.shuffle(batches)
@@ -139,5 +139,3 @@ def data_transforms_identbox(size: int):
         v2.ToDtype(torch.float32, scale=True),
     ])
     return train_transform, valid_transform
-
-
