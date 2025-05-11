@@ -99,9 +99,6 @@ def main(rank, args):
 
     for epoch in range(init_epoch, args.epochs):
         # update lrs.
-        if args.distributed:
-            train_queue.sampler.set_epoch(global_step + args.seed)
-            valid_queue.sampler.set_epoch(0)
 
         if epoch > args.warmup_epochs:
             cnn_scheduler.step()
