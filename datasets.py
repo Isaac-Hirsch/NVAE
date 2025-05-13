@@ -353,7 +353,7 @@ def get_loaders_eval(dataset, args):
         else:
             resize = 64
             num_classes = 10
-            concepts = ['obs', 'Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+            concepts = ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
             train_transform, valid_transform = _data_transforms_celeba64(resize)
             train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
             valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
@@ -472,7 +472,7 @@ def get_concepts(args) -> list[str]:
     if args.dataset == 'concepts_mnist':
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
-        return ['obs', 'Bags_Under_Eyes', 'Bangs', 'Big_Lips', 'Black_Hair', 'Blond_Hair', 'Mouth_Slightly_Open', 'Oval_Face', 'Pointy_Nose', 'Straight_Hair', 'Young']
+        return ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
     elif args.dataset.startswith('3DIdent_concepts'):
         return ['obs', 'bg_1', 'bg_3', 'obj_2', 'obj_8', 'sl_3', 'sl_7']
     return []
