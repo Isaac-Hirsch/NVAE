@@ -408,7 +408,7 @@ def get_loaders_eval(dataset, args):
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
     elif dataset.startswith('3DIdent_concepts'):
         num_classes = 7
-        concepts = ['obs', 'bg_1', 'bg_3', 'obj_2', 'obj_8', 'sl_3', 'sl_7']
+        concepts = ['obs', 'bg', 'obj', 'sl']
         resize = int(dataset.split('-')[1])
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = ConceptsIdentBoxDataset(data_dir=args.data,
@@ -425,7 +425,7 @@ def get_loaders_eval(dataset, args):
             train_queue = torch.utils.data.DataLoader(
                 train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
             valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
+                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
             return train_queue, valid_queue, num_classes
         
     elif dataset == 'concepts_mnist':
@@ -474,7 +474,7 @@ def get_concepts(args) -> list[str]:
     elif args.dataset.startswith('celeba_concepts'):
         return ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
     elif args.dataset.startswith('3DIdent_concepts'):
-        return ['obs', 'bg_1', 'bg_3', 'obj_2', 'obj_8', 'sl_3', 'sl_7']
+        return ['obs', 'bg', 'obj', 'sl']
     return []
 
 def _data_transforms_cifar10(args):
