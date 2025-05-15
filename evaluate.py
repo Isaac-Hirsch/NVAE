@@ -131,6 +131,61 @@ def main(rank, eval_args):
             for ind in range(num_iter):     # sampling is repeated.
                 image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
                 sample_constant_noise(logging, model, args, eval_args, image_name=image_name, temp=eval_args.temp)
+    elif eval_args.eval_mode.startswith('reconstruction'):
+        model = model.eval()
+
+        train_queue, valid_queue, num_classes = datasets.get_loaders(args)
+        if eval_args.eval_mode == 'reconstruction_train':
+            logging.info('Using the training data for eval.')
+            queue = train_queue
+        else:
+            logging.info('Using the validation data for eval.')
+            queue = valid_queue
+
+        with torch.no_grad():
+
+            bn_eval_mode = not eval_args.readjust_bn
+            set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
+            
+            total_samples = 50000 // eval_args.world_size          # num images per gpu
+            num_samples = 4                                         # sampling batch size
+            num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
+
+            for ind in range(num_iter):     # sampling is repeated.
+                torch.cuda.synchronize()
+                start = time()
+                with autocast("cuda"):
+                    x = next(iter(queue))
+                    if not isinstance(x, torch.Tensor):
+                        label = x[1]
+                        x = x[0]
+                    else:
+                        label = None
+                    x = x.to(rank)
+
+                    logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
+                    output = model.module.decoder_output(logits)
+
+                    x_img = x[:num_samples]
+                    output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
+                    output_img = output_img[:num_samples]
+                    
+                    x_img = x_img.cpu().numpy()
+                    output_img = output_img.cpu().numpy()
+
+                    x_img = x_img.permute(0, 2, 3, 1)
+                    output_img = output_img.permute(0, 2, 3, 1)
+
+                    fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
+                    for i in range(num_samples):
+                        axes[0, i].imshow(x_img[i])
+                        axes[0, i].axis('off')
+                        axes[1, i].imshow(output_img[i])
+                        axes[1, i].axis('off')
+                    plt.subplots_adjust(wspace=0, hspace=0)
+                    plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+                    plt.close(fig)
+
     else:
         bn_eval_mode = not eval_args.readjust_bn
         total_samples = 50000 // eval_args.world_size          # num images per gpu
@@ -193,7 +248,8 @@ if __name__ == '__main__':
     parser.add_argument('--save', type=str, default='/tmp/expr',
                         help='location of the checkpoint')
     parser.add_argument('--eval_mode', type=str, default='sample', \
-                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise'],
+                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise',
+                                 'reconstruction_train', 'reconstruction_test'],
                         help='evaluation mode. you can choose between sample or evaluate.')
     parser.add_argument('--eval_on_train', action='store_true', default=False,
                         help='Settings this to true will evaluate the model on training data.')
