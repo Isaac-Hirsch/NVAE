@@ -188,9 +188,10 @@ def main(rank, eval_args):
 
                     fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
                     for i in range(num_samples):
-                        axes[0, i].imshow(x_img[i])
+                        cmap = 'gray'
+                        axes[0, i].imshow(x_img[i], cmap=cmap)
                         axes[0, i].axis('off')
-                        axes[1, i].imshow(output_img[i])
+                        axes[1, i].imshow(output_img[i], cmap=cmap)
                         axes[1, i].axis('off')
                     plt.tight_layout()
                     plt.subplots_adjust(wspace=0, hspace=0)
