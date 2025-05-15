@@ -202,8 +202,8 @@ def main(rank, eval_args):
 
     else:
         bn_eval_mode = not eval_args.readjust_bn
-        total_samples = 50000 // eval_args.world_size          # num images per gpu
-        num_samples = 100                                      # sampling batch size
+        total_samples = 5000 // eval_args.world_size          # num images per gpu
+        num_samples = 16                                      # sampling batch size
         num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
         if args.arch_flag == 'concepts':
@@ -246,7 +246,8 @@ def main(rank, eval_args):
                     file_path = os.path.join(eval_args.save, 'gpu_%d_samples_%d.npz' % (eval_args.local_rank, ind))
                     np.savez_compressed(file_path, samples=output_img.cpu().numpy())
 
-                    grid = torchvision.utils.make_grid(output_img.cpu(), nrow=10, normalize=True)
+                    nrows = int(np.ceil(np.sqrt(num_samples)))
+                    grid = torchvision.utils.make_grid(output_img.cpu(), nrow=nrows, normalize=True)
                     torchvision.utils.save_image(grid, file_path.replace('.npz', '.png'))
 
                     
