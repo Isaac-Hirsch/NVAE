@@ -201,6 +201,69 @@ class ConceptsCeleba(Dataset):
     def __len__(self):
         return self.length
 
+class ConceptsCelebaNoOversampled(Dataset):
+    def __init__(self, root, split: str='train', transform=None,
+                 download=False, concepts=None):
+        assert split in ['train', 'valid', 'test', 'all']
+        assert concepts[0] == 'obs'
+        super(ConceptsCelebaNoOversampled, self).__init__()
+        self.data = dset.celeba.CelebA(root=root, split=split, target_type='attr', download=download, transform=transform)
+
+        df = pd.read_csv(os.path.join(root, 'celeba', 'list_attr_celeba.txt'), sep='\s+', skiprows=1)
+        df_split = pd.read_csv(os.path.join(root, 'celeba', 'list_eval_partition.txt'), sep='\s+', names=['split'], header=None)
+        df = pd.merge(df, df_split, left_index=True, right_index=True)
+        if split == 'train':
+            df = df[df['split'] == 0]
+        elif split == 'valid':
+            df = df[df['split'] == 1]
+        elif split == 'test':
+            df = df[df['split'] == 2]
+
+        df = df.drop(['split'], axis=1)
+        df.reset_index(inplace=True, drop=True)
+
+        self.concept_indices = {}
+        self.concepts = concepts
+
+        all_indicies = {i for i in range(len(self.data))}
+        used_indicies = set()
+
+        for concept in concepts[1:]:
+            concept_df = df[concept] == 1
+            self.concept_indices[concept] = concept_df[concept_df].index.tolist()
+            used_indicies = used_indicies.union(set(self.concept_indices[concept]))
+        
+        self.concept_indices['obs'] = list(all_indicies - used_indicies)
+
+        concept_sets = {concept: set(self.concept_indices[concept]) for concept in concepts}
+        for idx in range(len(self.data)):
+            seen_in = []
+            for concept in concepts[1:]:
+                if idx in concept_sets[concept]:
+                    seen_in.append(concept)
+            if len(seen_in) > 1:
+                keep_in = random.choice(seen_in)
+                for concept in seen_in:
+                    if concept != keep_in:
+                        concept_sets[concept].remove(idx)
+        
+        for concept in concepts:
+            self.concept_indices[concept] = sorted(list(concept_sets[concept]))
+        
+        self.length = sum(len(v) for v in self.concept_indices.values())
+
+    def __getitem__(self, index):
+        images_seen = 0
+        for concept, indicies in self.concept_indices.items():
+            if index < images_seen + len(indicies):
+                img, target = self.data[indicies[index - images_seen]]
+                return img, concept
+            images_seen += len(indicies)
+        raise IndexError(f"Index {index} out of range for Concepts_Celeba_64 dataset")
+    
+    def __len__(self):
+        return self.length
+
 class ConceptsCelebaSampler(Sampler):
     def __init__(self, dataset, batch_size, args):
         self.batch_size = batch_size
@@ -355,8 +418,12 @@ def get_loaders_eval(dataset, args):
             num_classes = 10
             concepts = ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
             train_transform, valid_transform = _data_transforms_celeba64(resize)
-            train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
-            valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
+            if 'no_oversampled' in dataset:
+                train_data = ConceptsCelebaNoOversampled(root=args.data, split='train', transform=train_transform, concepts=concepts)
+                valid_data = ConceptsCelebaNoOversampled(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
+            else:
+                train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
+                valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
             if args.arch_flag == 'concepts':
                 train_sampler = ConceptsCelebaSampler(train_data, args.batch_size, args)
                 valid_sampler = ConceptsCelebaSampler(valid_data, args.batch_size, args)

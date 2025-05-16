@@ -87,6 +87,9 @@ def main(rank, eval_args):
     # did not have this variable.
     model.load_state_dict(checkpoint['state_dict'])
 
+    if eval_args.dataset is not None:
+        args.dataset = eval_args.dataset
+
     logging.info('args = %s', args)
     logging.info('num conv layers: %d', len(model.module.all_conv_layers))
     logging.info('param size = %fM ', utils.count_parameters_in_M(model.module))
@@ -95,6 +98,8 @@ def main(rank, eval_args):
         # load train valid queue
         args.data = eval_args.data
         train_queue, valid_queue, num_classes = datasets.get_loaders(args)
+
+        logging.info(f'Loaded {args.dataset} dataset with {len(train_queue.dataset)} training samples and {len(valid_queue.dataset)} validation samples')
 
         if eval_args.eval_on_train:
             logging.info('Using the training data for eval.')
@@ -274,6 +279,9 @@ if __name__ == '__main__':
                         help='seed used for initialization')
     parser.add_argument('--master_address', type=str, default='127.0.0.1',
                         help='address for master')
+    
+    parser.add_argument('--dataset', type=str, default=None,
+                        help='dataset used for evaluation')
 
     args = parser.parse_args()
     utils.create_exp_dir(args.save)

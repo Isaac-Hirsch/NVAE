@@ -113,7 +113,7 @@ def main(rank, args):
 
         model.eval()
         # generate samples less frequently
-        eval_freq = 1 if args.epochs <= 50 else 20
+        eval_freq = 1 if args.epochs <= 50 else 2
         if epoch % eval_freq == 0 or epoch == (args.epochs - 1):
             with torch.no_grad():
                 num_samples = 16
@@ -365,7 +365,7 @@ if __name__ == '__main__':
                         choices=['cifar10', 'mnist', 'omniglot', 'celeba_64', 'celeba_256',
                                  'imagenet_32', 'ffhq', 'lsun_bedroom_128', 'stacked_mnist',
                                  'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations-64',
-                                 'concepts_mnist', 'celeba_concepts_64', '3DIdent_concepts-64'],
+                                 'concepts_mnist', 'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64'],
                         help='which dataset to use')
     parser.add_argument('--data', type=str, default='/tmp/nasvae/data',
                         help='location of the data corpus')
@@ -495,7 +495,7 @@ if __name__ == '__main__':
 def setup(rank, world_size):
     # initialize the process group
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
 
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
