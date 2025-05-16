@@ -143,6 +143,8 @@ def main(rank, eval_args):
         combos = list(combo for combo in combinations(concepts, 2))
         logging.info('combos: %s', combos)
 
+        num_samples = 4
+
         model = model.eval()
         with torch.no_grad():
 
@@ -157,7 +159,6 @@ def main(rank, eval_args):
                 concept2 = combo[1]
 
                 with autocast("cuda"):
-                    logging.info('combo: %s', combo)
                     logits_combo = model.module.sample(num_samples, eval_args.temp, batch_label=combo)
                     logits_concept1 = model.module.sample(num_samples, eval_args.temp, batch_label=concept1)
                     logits_concept2 = model.module.sample(num_samples, eval_args.temp, batch_label=concept2)
@@ -166,33 +167,36 @@ def main(rank, eval_args):
                 torch.cuda.synchronize()
 
                 output_combo = model.module.decoder_output(logits_combo)
-                output_combo_img = output.mean if isinstance(output_combo, torch.distributions.bernoulli.Bernoulli) \
-                    else output.sample()
+                output_combo_img = output_combo.mean if isinstance(output_combo, torch.distributions.bernoulli.Bernoulli) \
+                    else output_combo.sample()
                 output_combo_img = output_combo_img.permute(0, 2, 3, 1)
                 output_combo_img = output_combo_img.cpu().numpy()
                 
                 output_concept1 = model.module.decoder_output(logits_concept1)
-                output_concept1_img = output.mean if isinstance(output_concept1, torch.distributions.bernoulli.Bernoulli) \
-                    else output.sample()
+                output_concept1_img = output_concept1.mean if isinstance(output_concept1, torch.distributions.bernoulli.Bernoulli) \
+                    else output_concept1.sample()
                 output_concept1_img = output_concept1_img.permute(0, 2, 3, 1)
                 output_concept1_img = output_concept1_img.cpu().numpy()
                 
                 output_concept2 = model.module.decoder_output(logits_concept2)
-                output_concept2_img = output.mean if isinstance(output_concept2, torch.distributions.bernoulli.Bernoulli) \
-                    else output.sample()
+                output_concept2_img = output_concept2.mean if isinstance(output_concept2, torch.distributions.bernoulli.Bernoulli) \
+                    else output_concept2.sample()
                 output_concept2_img = output_concept2_img.permute(0, 2, 3, 1)
                 output_concept2_img = output_concept2_img.cpu().numpy()
 
                 output_obs = model.module.decoder_output(logits_obs)
-                output_obs_img = output.mean if isinstance(output_obs, torch.distributions.bernoulli.Bernoulli) \
-                    else output.sample()
+                output_obs_img = output_obs.mean if isinstance(output_obs, torch.distributions.bernoulli.Bernoulli) \
+                    else output_obs.sample()
                 output_obs_img = output_obs_img.permute(0, 2, 3, 1)
                 output_obs_img = output_obs_img.cpu().numpy()
 
-                fig, axes = plt.subplots(4, num_samples, figsize=(16, 10))
+                if 'labeled' in eval_args.eval_mode:
+                    fig, axes = plt.subplots(4, num_samples, figsize=(12, 10))
+                else:
+                    fig, axes = plt.subplots(4, num_samples, figsize=(10, 10))
 
                 for i in range(num_samples):
-                    cmap = 'gay'
+                    cmap = 'gray'
                     axes[0, i].imshow(output_obs_img[i], cmap=cmap)
                     axes[0, i].set_xticks([])
                     axes[0, i].set_yticks([])
@@ -212,8 +216,30 @@ def main(rank, eval_args):
                     axes[2, 0].set_ylabel('Concept 2', fontsize=20, rotation=0, va='center', ha='right')
                     axes[3, 0].set_ylabel('Combo', fontsize=20, rotation=0, va='center', ha='right')
                 
-                fig.tight_layout()
+                # TODO change this to something scalable
+                concept_name_dict = {
+                    'obs': 'Observation',
+                    'obj': 'Object',
+                    'sl' : 'Spotlight',
+                    'bg' : 'Background',
+                    'scaled' : 'Scaled', 
+                    'shear' : 'Shear', 
+                    'shift' : 'Shift', 
+                    'swel' : 'Swell', 
+                    'thic' : 'Thick', 
+                    'thin' : 'Thin',
+                }
+                
+                if concept1 in concept_name_dict:
+                    concept1 = concept_name_dict[concept1]
+                if concept2 in concept_name_dict:
+                    concept2 = concept_name_dict[concept2]
+
+                fig.suptitle(f'({concept1}, {concept2})', fontsize=20, y=0.035)
+                
+                fig.tight_layout(rect=[0, 0.05, 1, 1])
                 plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+                plt.close(fig)
 
                 logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
         
