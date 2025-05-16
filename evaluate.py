@@ -136,6 +136,87 @@ def main(rank, eval_args):
             for ind in range(num_iter):     # sampling is repeated.
                 image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
                 sample_constant_noise(logging, model, args, eval_args, image_name=image_name, temp=eval_args.temp)
+    elif eval_args.eval_mode.startswith('compare_2_concepts'):
+        assert args.arch_flag == 'concepts'
+
+        concepts = (c for c in args.concepts if c != "obs")
+        combos = list(combo for combo in combinations(concepts, 2))
+        logging.info('combos: %s', combos)
+
+        model = model.eval()
+        with torch.no_grad():
+
+            bn_eval_mode = not eval_args.readjust_bn
+            set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
+
+            num_iter = 100
+            for ind in range(num_iter):
+                combo = combos[ind % len(combos)]
+                logging.info('combo: %s', combo)
+                concept1 = combo[0]
+                concept2 = combo[1]
+
+                with autocast("cuda"):
+                    logging.info('combo: %s', combo)
+                    logits_combo = model.module.sample(num_samples, eval_args.temp, batch_label=combo)
+                    logits_concept1 = model.module.sample(num_samples, eval_args.temp, batch_label=concept1)
+                    logits_concept2 = model.module.sample(num_samples, eval_args.temp, batch_label=concept2)
+                    logits_obs = model.module.sample(num_samples, eval_args.temp, batch_label='obs')
+                
+                torch.cuda.synchronize()
+
+                output_combo = model.module.decoder_output(logits_combo)
+                output_combo_img = output.mean if isinstance(output_combo, torch.distributions.bernoulli.Bernoulli) \
+                    else output.sample()
+                output_combo_img = output_combo_img.permute(0, 2, 3, 1)
+                output_combo_img = output_combo_img.cpu().numpy()
+                
+                output_concept1 = model.module.decoder_output(logits_concept1)
+                output_concept1_img = output.mean if isinstance(output_concept1, torch.distributions.bernoulli.Bernoulli) \
+                    else output.sample()
+                output_concept1_img = output_concept1_img.permute(0, 2, 3, 1)
+                output_concept1_img = output_concept1_img.cpu().numpy()
+                
+                output_concept2 = model.module.decoder_output(logits_concept2)
+                output_concept2_img = output.mean if isinstance(output_concept2, torch.distributions.bernoulli.Bernoulli) \
+                    else output.sample()
+                output_concept2_img = output_concept2_img.permute(0, 2, 3, 1)
+                output_concept2_img = output_concept2_img.cpu().numpy()
+
+                output_obs = model.module.decoder_output(logits_obs)
+                output_obs_img = output.mean if isinstance(output_obs, torch.distributions.bernoulli.Bernoulli) \
+                    else output.sample()
+                output_obs_img = output_obs_img.permute(0, 2, 3, 1)
+                output_obs_img = output_obs_img.cpu().numpy()
+
+                fig, axes = plt.subplots(4, num_samples, figsize=(16, 10))
+
+                for i in range(num_samples):
+                    cmap = 'gay'
+                    axes[0, i].imshow(output_obs_img[i], cmap=cmap)
+                    axes[0, i].set_xticks([])
+                    axes[0, i].set_yticks([])
+                    axes[1, i].imshow(output_concept1_img[i], cmap=cmap)
+                    axes[1, i].set_xticks([])
+                    axes[1, i].set_yticks([])
+                    axes[2, i].imshow(output_concept2_img[i], cmap=cmap)
+                    axes[2, i].set_xticks([])
+                    axes[2, i].set_yticks([])
+                    axes[3, i].imshow(output_combo_img[i], cmap=cmap)
+                    axes[3, i].set_xticks([])
+                    axes[3, i].set_yticks([])
+                
+                if 'labeled' in eval_args.eval_mode:
+                    axes[0, 0].set_ylabel('Observation', fontsize=20, rotation=0, va='center', ha='right')
+                    axes[1, 0].set_ylabel('Concept 1', fontsize=20, rotation=0, va='center', ha='right')
+                    axes[2, 0].set_ylabel('Concept 2', fontsize=20, rotation=0, va='center', ha='right')
+                    axes[3, 0].set_ylabel('Combo', fontsize=20, rotation=0, va='center', ha='right')
+                
+                fig.tight_layout()
+                plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+
+                logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+        
     elif eval_args.eval_mode.startswith('reconstruction'):
         num_samples = 4
 
@@ -270,7 +351,7 @@ if __name__ == '__main__':
                         help='location of the checkpoint')
     parser.add_argument('--eval_mode', type=str, default='sample', \
                         choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise',
-                                 'reconstruction_train', 'reconstruction_test'],
+                                 'reconstruction_train', 'reconstruction_test', 'compare_2_concepts', 'compare_2_concepts_labeled'],
                         help='evaluation mode. you can choose between sample or evaluate.')
     parser.add_argument('--eval_on_train', action='store_true', default=False,
                         help='Settings this to true will evaluate the model on training data.')
