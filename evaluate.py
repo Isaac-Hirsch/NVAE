@@ -137,7 +137,13 @@ def main(rank, eval_args):
                 image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
                 sample_constant_noise(logging, model, args, eval_args, image_name=image_name, temp=eval_args.temp)
     elif eval_args.eval_mode.startswith('reconstruction'):
-        model = model.eval()
+        num_samples = 4
+
+        args.global_rank = rank
+        args.local_rank = rank
+        args.world_size = eval_args.world_size
+        args.distributed = eval_args.world_size > 1
+        args.batch_size = num_samples
 
         train_queue, valid_queue, num_classes = datasets.get_loaders(args)
         if eval_args.eval_mode == 'reconstruction_train':
@@ -147,13 +153,14 @@ def main(rank, eval_args):
             logging.info('Using the validation data for eval.')
             queue = valid_queue
 
+        model = model.eval()
+
         with torch.no_grad():
 
             bn_eval_mode = not eval_args.readjust_bn
             set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
             
-            total_samples = 50000 // eval_args.world_size          # num images per gpu
-            num_samples = 4                                         # sampling batch size
+            total_samples = 500 // eval_args.world_size          # num images per gpu
             num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
             for ind in range(num_iter):     # sampling is repeated.
@@ -169,32 +176,40 @@ def main(rank, eval_args):
                     x = x.to(rank)
 
                     logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
+
+                    if label is not None:
+                        logging.info('label: %s', label)
                     output = model.module.decoder_output(logits)
 
                     x_img = x[:num_samples]
                     output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
                     output_img = output_img[:num_samples]
+
+                    x_img = x_img.permute(0, 2, 3, 1)
+                    output_img = output_img.permute(0, 2, 3, 1)
                     
                     x_img = x_img.cpu().numpy()
                     output_img = output_img.cpu().numpy()
 
-                    x_img = x_img.permute(0, 2, 3, 1)
-                    output_img = output_img.permute(0, 2, 3, 1)
-
                     fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
                     for i in range(num_samples):
-                        axes[0, i].imshow(x_img[i])
+                        cmap = 'gray'
+                        axes[0, i].imshow(x_img[i], cmap=cmap)
                         axes[0, i].axis('off')
-                        axes[1, i].imshow(output_img[i])
+                        axes[1, i].imshow(output_img[i], cmap=cmap)
                         axes[1, i].axis('off')
+                    plt.tight_layout()
                     plt.subplots_adjust(wspace=0, hspace=0)
+                    plt.margins(0, 0)
                     plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
                     plt.close(fig)
 
+                    logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+
     else:
         bn_eval_mode = not eval_args.readjust_bn
-        total_samples = 50000 // eval_args.world_size          # num images per gpu
-        num_samples = 100                                      # sampling batch size
+        total_samples = 5000 // eval_args.world_size          # num images per gpu
+        num_samples = 16                                      # sampling batch size
         num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
         if args.arch_flag == 'concepts':
@@ -237,7 +252,8 @@ def main(rank, eval_args):
                     file_path = os.path.join(eval_args.save, 'gpu_%d_samples_%d.npz' % (eval_args.local_rank, ind))
                     np.savez_compressed(file_path, samples=output_img.cpu().numpy())
 
-                    grid = torchvision.utils.make_grid(output_img.cpu(), nrow=10, normalize=True)
+                    nrows = int(np.ceil(np.sqrt(num_samples)))
+                    grid = torchvision.utils.make_grid(output_img.cpu(), nrow=nrows, normalize=True)
                     torchvision.utils.save_image(grid, file_path.replace('.npz', '.png'))
 
                     

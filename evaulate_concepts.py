@@ -167,6 +167,7 @@ def sample_constant_noise(
     z, _ = dist.sample()
 
     fig, axes = plt.subplots(num_concepts, num_concepts, figsize=(num_concepts * 3, num_concepts * 3), squeeze=False)
+    cmap = 'gray'
 
     # Combines every pair of concepts. Does not include obs.
     for i, concept_1 in enumerate(concepts[1:]):
@@ -185,7 +186,7 @@ def sample_constant_noise(
             output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) \
                         else output.sample()
             output_img = output_img[0]
-            axes[i, j].imshow(output_img.permute(1, 2, 0).detach().cpu().numpy())
+            axes[i, j].imshow(output_img.permute(1, 2, 0).detach().cpu().numpy(), cmap=cmap)
             axes[i, j].axis('off')
 
     for i, concept in enumerate(concepts[1:]):
