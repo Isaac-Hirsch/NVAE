@@ -80,7 +80,7 @@ class ConceptsMNIST(Dataset):
                  download=False):
         super(ConceptsMNIST, self).__init__()
         concepts = ("obs", "scaled", "shear", "shift", "swel", "thic", "thin")
-        csvs = [pd.read_csv(f"/home/ubuntu/gpu02/data/normalized_mnist_concepts/normalized_mnist_{concept}.csv", header=None) for concept in concepts]
+        csvs = [pd.read_csv(os.path.join(root, f"normalized_mnist_{concept}.csv"), header=None) for concept in concepts]
         uf = nn.Unflatten(-1, (1, 28, 28))
         data_dict = {concept: uf(torch.tensor(d.values[:, :-2], dtype=torch.float32)) for d, concept in zip(csvs, concepts)}
 
