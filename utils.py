@@ -313,6 +313,8 @@ def num_output(dataset):
     elif dataset.startswith('3DIdent'):
         size = int(dataset.split('-')[-1])
         return 3 * size * size
+    elif dataset == 'concepts_mpi3d_toy':
+        return 3 * 64 * 64
     else:
         raise NotImplementedError
 
@@ -333,6 +335,8 @@ def get_input_size(dataset):
     elif dataset.startswith('3DIdent'):
         size = int(dataset.split('-')[-1])
         return size
+    elif dataset == 'concepts_mpi3d_toy':
+        return 64
     else:
         raise NotImplementedError
 
