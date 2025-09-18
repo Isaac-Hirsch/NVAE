@@ -352,6 +352,67 @@ class ConceptsMPI3DToy(Dataset):
             image = self.transform(image)
         
         return image, concept
+    
+class ConceptsMPI3DToyNew(Dataset):
+    def __init__(self, root, train=True, transform=None):
+        self.root = root
+        self.train = train
+        self.transform = transform
+
+        # Load the toy data
+        self.data = np.load(os.path.join(self.root, 'mpi3d', 'mpi3d_toy.npz'))['images']
+
+        # Factors:
+        # dim 0: object_color
+        # dim 1: object_shape
+        # dim 2: object_size
+        # dim 3: camera_height
+        # dim 4: background_color
+        # dim 5: horizontal_axis
+        # dim 6: vertical_axis
+        self.data = self.data.reshape([6, 6, 2, 3, 3, 40, 40, 64, 64, 3])
+        
+        self.concepts = ['obs', 'camera_height', 'object_size']
+
+        self.data_dict = {}
+        self.data_dict['obs'] = self.data[:, :, 0, 0]
+        self.data_dict['camera_height'] = self.data[:, :, 0, 2]
+        self.data_dict['object_size'] = self.data[:, :, 1, 0]
+
+        for key, value in self.data_dict.items():
+            self.data_dict[key] = value.reshape(-1, 64, 64, 3)
+
+
+        self.concept_len = self.data_dict['obs'].shape[0]  # Number of samples per concept
+
+        np.random.seed(0)
+        for concept in self.concepts:
+            train_indicies = np.random.choice(self.concept_len, size=int(0.8 * self.concept_len), replace=False)
+            test_indicies = np.setdiff1d(np.arange(self.concept_len), train_indicies)
+
+            if self.train:
+                self.data_dict[concept] = self.data_dict[concept][train_indicies]
+            else:
+                self.data_dict[concept] = self.data_dict[concept][test_indicies]
+        
+        self.concept_len = self.data_dict[self.concepts[0]].shape[0]
+        
+        self.length = sum(self.data_dict[concept].shape[0] for concept in self.concepts)
+    
+    def __len__(self):
+        return self.length
+    
+    def __getitem__(self, idx):
+        if idx >= self.length:
+            raise IndexError("Index out of range for dataset.")
+
+        concept = self.concepts[idx // self.concept_len]
+        image = self.data_dict[concept][idx % self.concept_len]
+
+        if self.transform:
+            image = self.transform(image)
+        
+        return image, concept
 
 class ConceptsMPI3DToySampler(Sampler):
     def __init__(self, dataset, batch_size, args):
@@ -602,11 +663,16 @@ def get_loaders_eval(dataset, args):
             valid_queue = torch.utils.data.DataLoader(
                 valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
             return train_queue, valid_queue, num_classes
-    elif dataset == 'concepts_mpi3d_toy':
-        num_classes = 4
+    elif dataset in ['concepts_mpi3d_toy', 'concepts_mpi3d_toy_new']:
         train_transform, valid_transform = _data_transforms_concepts_mpi3d_toy()
-        train_data = ConceptsMPI3DToy(root=args.data, train=True, transform=train_transform)
-        valid_data = ConceptsMPI3DToy(root=args.data, train=False, transform=valid_transform)
+        if dataset == 'concepts_mpi3d_toy':
+            num_classes = 4
+            train_data = ConceptsMPI3DToy(root=args.data, train=True, transform=train_transform)
+            valid_data = ConceptsMPI3DToy(root=args.data, train=False, transform=valid_transform)
+        elif dataset == 'concepts_mpi3d_toy_new':
+            num_classes = 3
+            train_data = ConceptsMPI3DToyNew(root=args.data, train=True, transform=train_transform)
+            valid_data = ConceptsMPI3DToyNew(root=args.data, train=False, transform=valid_transform)
 
         if args.arch_flag == 'concepts':
             train_sampler = ConceptsMPI3DToySampler(train_data, args.batch_size, args)
@@ -614,7 +680,7 @@ def get_loaders_eval(dataset, args):
             train_queue = torch.utils.data.DataLoader(
                 train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
+                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             return train_queue, valid_queue, num_classes
 
     else:
@@ -649,6 +715,8 @@ def get_concepts(args) -> list[str]:
         return ['obs', 'bg', 'obj', 'sl']
     elif args.dataset == 'concepts_mpi3d_toy':
         return ['obs', 'object_color', 'object_shape', 'object_size']
+    elif args.dataset == 'concepts_mpi3d_toy_new':
+        return ['obs', 'camera_height', 'object_size']
     return []
 
 def _data_transforms_cifar10(args):

@@ -9,6 +9,7 @@ import argparse
 import torch
 import numpy as np
 import os
+from PIL import Image
 import matplotlib.pyplot as plt
 from time import time
 import torchvision
@@ -267,7 +268,7 @@ def main(rank, eval_args):
             bn_eval_mode = not eval_args.readjust_bn
             set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
             
-            total_samples = 500 // eval_args.world_size          # num images per gpu
+            total_samples = 100 // eval_args.world_size          # num images per gpu
             num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
             for ind in range(num_iter):     # sampling is repeated.

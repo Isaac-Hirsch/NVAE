@@ -207,6 +207,8 @@ class AutoEncoder(nn.Module):
                 out_channels=2 * args.eps_dim * args.eps_in_width,
                 kernel_size=1, padding=0, bias=True
             )
+            print(f'Expressive in layer: {self.expressive_in}s')
+            print(f'Conceptualizer eps_in_width: {reduce(lambda x, y: x * y, self.z0_size[1:]) * args.eps_in_width}')
             self.ivn_eps, self.expressive_layer, self.causal_layer, self.unpool = (
                 dec_conceptualizer(
                     args.eps_dim,
@@ -558,7 +560,8 @@ class AutoEncoder(nn.Module):
             return Bernoulli(logits=logits)
         elif self.dataset in {'stacked_mnist', 'cifar10', 'celeba_64', 'celeba_256', 'imagenet_32', 'imagenet_64', 'ffhq',
                               'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations-64',
-                              'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64', 'concepts_mpi3d_toy'
+                              'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64', 'concepts_mpi3d_toy',
+                              'concepts_mpi3d_toy_new'
                               }:
             if self.num_mix_output == 1:
                 return NormalDecoder(logits, num_bits=self.num_bits)
