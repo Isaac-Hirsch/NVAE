@@ -365,7 +365,7 @@ if __name__ == '__main__':
                         choices=['cifar10', 'mnist', 'omniglot', 'celeba_64', 'celeba_256',
                                  'imagenet_32', 'ffhq', 'lsun_bedroom_128', 'stacked_mnist',
                                  'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations-64',
-                                 'concepts_mnist', 'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64',
+                                 'concepts_mnist', 'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64', '3DIdent_concepts_obs-64',
                                  'concepts_mpi3d_toy', 'concepts_mpi3d_toy_new'],
                         help='which dataset to use')
     parser.add_argument('--data', type=str, default='/tmp/nasvae/data',

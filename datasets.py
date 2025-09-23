@@ -627,8 +627,12 @@ def get_loaders_eval(dataset, args):
         train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
     elif dataset.startswith('3DIdent_concepts'):
-        num_classes = 7
-        concepts = ['obs', 'bg', 'obj', 'sl']
+        if dataset.startswith('3DIdent_concepts_obs'):
+            num_classes = 1
+            concepts = ['obs']
+        else:
+            num_classes = 4
+            concepts = ['obs', 'bg', 'obj', 'sl']
         resize = int(dataset.split('-')[1])
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = ConceptsIdentBoxDataset(data_dir=args.data,

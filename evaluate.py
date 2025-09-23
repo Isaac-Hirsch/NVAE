@@ -31,6 +31,9 @@ from itertools import combinations
 
 from evaulate_concepts import get_dag, sample_constant_noise
 
+from eval_concepts import compute_ood_metrics, get_data_loader
+from scripts.identBox.identBoxDataset import data_transforms_identbox
+
 def set_bn(model, bn_eval_mode, num_samples=1, t=1.0, iter=100):
     if bn_eval_mode:
         model.eval()
@@ -105,6 +108,11 @@ def main(rank, eval_args):
         if eval_args.eval_on_train:
             logging.info('Using the training data for eval.')
             valid_queue = train_queue
+
+        model = model.eval()
+        with torch.no_grad():
+            bn_eval_mode = not eval_args.readjust_bn
+            set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
 
         # get number of bits
         num_output = utils.num_output(args.dataset)
@@ -313,6 +321,21 @@ def main(rank, eval_args):
                     plt.close(fig)
 
                     logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+    elif eval_args.eval_mode == 'ood_metrics':
+        concepts = (c for c in args.concepts if c != "obs")
+        double_concepts = list(combo for combo in combinations(concepts, 2))
+        double_concepts = ['-'.join(combo) for combo in double_concepts]
+        logging.info('double concepts: %s', double_concepts)
+
+        if args.dataset.startswith('3DIdent'):
+            train_transform, test_transform = data_transforms_identbox(64)
+        else:
+            train_transform, test_transform = None, None
+
+        print(f'Loading data from {eval_args.data}')
+        val_data_loader = get_data_loader(eval_args.data, test_transform)
+
+        compute_ood_metrics(double_concepts, val_data_loader, model, eval_args.save)
 
     else:
         bn_eval_mode = not eval_args.readjust_bn
@@ -377,7 +400,7 @@ if __name__ == '__main__':
     parser.add_argument('--save', type=str, default='/tmp/expr',
                         help='location of the checkpoint')
     parser.add_argument('--eval_mode', type=str, default='sample', \
-                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise',
+                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise', 'ood_metrics', \
                                  'reconstruction_train', 'reconstruction_test', 'compare_2_concepts', 'compare_2_concepts_labeled'],
                         help='evaluation mode. you can choose between sample or evaluate.')
     parser.add_argument('--eval_on_train', action='store_true', default=False,
