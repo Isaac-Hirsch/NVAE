@@ -6,6 +6,8 @@ import pandas as pd
 import os
 
 def _sub_recon_flat_gen(concepts: str, data_loader, model, num_batches=20):
+    # TODO test wasserstein distance between dataload and itself, should be near 0 even if has different batches
+
     model.eval()
     batch_label = concepts.split('-')
     orig_batches = []
@@ -39,7 +41,7 @@ def _compute_ot_gen(concepts: str, data_loader, model, num_batches=20):
     orig, recon = _sub_recon_flat_gen(concepts, data_loader, model, num_batches)
     return sliced_wasserstein_distance(orig, recon).item()
 
-def compute_ood_metrics(concepts, data_loader, model, path):
+def compute_ood_metrics(concepts, data_loader, model, path, ood: bool = True):
     # Initialize a list to store metrics
     metrics_list = []
 
@@ -47,13 +49,14 @@ def compute_ood_metrics(concepts, data_loader, model, path):
         # Create a DataLoader for the current concept
         split_concept = concept
         # Compute metrics for the current concept
-        ot_gen_value = _compute_ot_gen(split_concept, data_loader, model)
+        ot_gen_value = _compute_ot_gen(split_concept, data_loader, model, num_batches=50)
 
         # Append the metrics as a dictionary to the list
+        metric_name = "ood" if ood else "id"
         metrics_list.append(
             {
                 "concept": concept,
-                "ood_ot_gen": ot_gen_value
+                f"{metric_name}_ot_gen": ot_gen_value
             }
         )
 
@@ -61,7 +64,7 @@ def compute_ood_metrics(concepts, data_loader, model, path):
     metrics_df = pd.DataFrame(metrics_list)
 
     # Save the metrics DataFrame to a CSV file
-    metrics_df.to_csv(f"{path}/ood_metrics.csv", index=False)
+    metrics_df.to_csv(f"{path}/{metric_name}_metrics.csv", index=False)
 
 class DictDataset(Dataset):
     def __init__(self, data_dict):
@@ -139,7 +142,7 @@ class ood_dataset(Dataset):
 
 def get_data_loader(data_path, transform):
     dataset = ood_dataset(data_path, transform)
-    data_loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=0, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
+    data_loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=0, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
     return data_loader
 
 """

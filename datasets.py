@@ -643,14 +643,13 @@ def get_loaders_eval(dataset, args):
                                                 train=False,
                                                 concepts=concepts,
                                                 transform=valid_transform)
-        if args.arch_flag == 'concepts':
-            train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
-            valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
-            train_queue = torch.utils.data.DataLoader(
-                train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
-            valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
-            return train_queue, valid_queue, num_classes
+        train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
+        valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
+        train_queue = torch.utils.data.DataLoader(
+            train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        valid_queue = torch.utils.data.DataLoader(
+            valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        return train_queue, valid_queue, num_classes
     elif dataset == 'concepts_mnist':
         num_classes = 7
         train_transform, valid_transform = _data_transforms_concepts_mnist(args)
@@ -665,7 +664,7 @@ def get_loaders_eval(dataset, args):
             train_queue = torch.utils.data.DataLoader(
                 train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=1)
+                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             return train_queue, valid_queue, num_classes
     elif dataset in ['concepts_mpi3d_toy', 'concepts_mpi3d_toy_new']:
         train_transform, valid_transform = _data_transforms_concepts_mpi3d_toy()

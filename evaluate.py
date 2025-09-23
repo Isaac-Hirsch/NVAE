@@ -321,21 +321,29 @@ def main(rank, eval_args):
                     plt.close(fig)
 
                     logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
-    elif eval_args.eval_mode == 'ood_metrics':
-        concepts = (c for c in args.concepts if c != "obs")
-        double_concepts = list(combo for combo in combinations(concepts, 2))
-        double_concepts = ['-'.join(combo) for combo in double_concepts]
-        logging.info('double concepts: %s', double_concepts)
+    elif eval_args.eval_mode in ['ood_metrics', 'id_metrics']:
+        is_ood = eval_args.eval_mode == 'ood_metrics'
+        concepts = datasets.get_concepts(args)
+        if is_ood:
+            concepts = [c for c in concepts if c != "obs"]
+            dataset_concepts = list(combo for combo in combinations(concepts, 2))
+            dataset_concepts = ['-'.join(combo) for combo in dataset_concepts]
+            logging.info('double concepts: %s', dataset_concepts)
+            if args.dataset.startswith('3DIdent'):
+                train_transform, test_transform = data_transforms_identbox(64)
+            else:
+                train_transform, test_transform = None, None
 
-        if args.dataset.startswith('3DIdent'):
-            train_transform, test_transform = data_transforms_identbox(64)
+            print(f'Loading data from {eval_args.data}')
+            # TODO change so that if I am using ID, it takes validation dataloader from dataset.py
+            valid_queue = get_data_loader(eval_args.data, test_transform)
         else:
-            train_transform, test_transform = None, None
+            dataset_concepts = list(concepts)
+            logging.info('single concepts: %s', dataset_concepts)
+            args.data = eval_args.data
+            train_queue, valid_queue, num_classes = datasets.get_loaders(args)
 
-        print(f'Loading data from {eval_args.data}')
-        val_data_loader = get_data_loader(eval_args.data, test_transform)
-
-        compute_ood_metrics(double_concepts, val_data_loader, model, eval_args.save)
+        compute_ood_metrics(dataset_concepts, valid_queue, model, eval_args.save, ood=is_ood)
 
     else:
         bn_eval_mode = not eval_args.readjust_bn
@@ -400,7 +408,7 @@ if __name__ == '__main__':
     parser.add_argument('--save', type=str, default='/tmp/expr',
                         help='location of the checkpoint')
     parser.add_argument('--eval_mode', type=str, default='sample', \
-                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise', 'ood_metrics', \
+                        choices=['sample', 'sample_combo', 'evaluate', 'evaluate_fid', 'dag', 'sample_constant_noise', 'ood_metrics', 'id_metrics', \
                                  'reconstruction_train', 'reconstruction_test', 'compare_2_concepts', 'compare_2_concepts_labeled'],
                         help='evaluation mode. you can choose between sample or evaluate.')
     parser.add_argument('--eval_on_train', action='store_true', default=False,
