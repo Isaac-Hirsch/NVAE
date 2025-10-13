@@ -14,27 +14,28 @@ def _sub_recon_flat_gen(concepts: str, data_loader, model, num_batches=20):
     recon_batches = []
     i = 0
     print(f'concept: {concepts}')
-    for (batch, concepts_label) in data_loader:
-        if concepts_label != concepts:
-            continue
-        i += 1
-        print(f"Processing batch {i+1}/{num_batches} for concepts {concepts}")
-        if i >= num_batches:
-            break
-        bsz = batch.size(0)
-        flat = batch.view(bsz, -1)
-        orig_batches.append(flat)
-        with torch.no_grad():
-            logits = model.module.sample(num_samples=bsz, t=1.0, batch_label=batch_label)
-            output = model.module.decoder_output(logits)
-            if isinstance(output, torch.distributions.bernoulli.Bernoulli):
-                generated = output.mean
-            else:
-                generated = output.sample()
-        recon_batches.append(generated.view(bsz, -1))
+    while i < num_batches:
+        for (batch, concepts_label) in data_loader:
+            if concepts_label != concepts:
+                continue
+            i += 1
+            print(f"Processing batch {i+1}/{num_batches} for concepts {concepts}")
+            if i >= num_batches:
+                break
+            bsz = batch.size(0)
+            flat = batch.view(bsz, -1)
+            orig_batches.append(flat)
+            with torch.no_grad():
+                logits = model.module.sample(num_samples=bsz, t=1.0, batch_label=batch_label)
+                output = model.module.decoder_output(logits)
+                if isinstance(output, torch.distributions.bernoulli.Bernoulli):
+                    generated = output.mean
+                else:
+                    generated = output.sample()
+            recon_batches.append(generated.view(bsz, -1))
 
-    orig_flat = torch.cat(orig_batches, dim=0)
-    recon_flat = torch.cat(recon_batches, dim=0).cpu()
+        orig_flat = torch.cat(orig_batches, dim=0)
+        recon_flat = torch.cat(recon_batches, dim=0).cpu()
     return orig_flat, recon_flat
 
 def _compute_ot_gen(concepts: str, data_loader, model, num_batches=20):
@@ -49,7 +50,7 @@ def compute_ood_metrics(concepts, data_loader, model, path, ood: bool = True):
         # Create a DataLoader for the current concept
         split_concept = concept
         # Compute metrics for the current concept
-        ot_gen_value = _compute_ot_gen(split_concept, data_loader, model, num_batches=50)
+        ot_gen_value = _compute_ot_gen(split_concept, data_loader, model, num_batches=100)
 
         # Append the metrics as a dictionary to the list
         metric_name = "ood" if ood else "id"
@@ -142,7 +143,7 @@ class ood_dataset(Dataset):
 
 def get_data_loader(data_path, transform):
     dataset = ood_dataset(data_path, transform)
-    data_loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=0, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
+    data_loader = DataLoader(dataset, batch_size=512, shuffle=True, num_workers=0, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
     return data_loader
 
 """

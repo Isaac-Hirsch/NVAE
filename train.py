@@ -46,8 +46,7 @@ def main(rank, args):
     train_queue, valid_queue, num_classes = datasets.get_loaders(args)
     ### NEW CODE
 
-    if num_classes > 1:
-        args.concepts = datasets.get_concepts(args)
+    args.concepts = datasets.get_concepts(args)
 
     ### NEW CODE
     args.num_total_iter = len(train_queue) * args.epochs
@@ -465,7 +464,7 @@ if __name__ == '__main__':
     #TODO update the help to match choices
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
                         help='flag for architecture. Must be in [vanilla-obs, vanilla-pooled, concepts, single-pooled-concept]',
-                        choices=["vanilla", "concepts"])
+                        choices=["vanilla", "concepts", "single-pooled-concept"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')
     parser.add_argument('--eps_in_width', type=int, default=3,

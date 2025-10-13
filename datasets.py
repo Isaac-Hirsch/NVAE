@@ -627,7 +627,7 @@ def get_loaders_eval(dataset, args):
         train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
     elif dataset.startswith('3DIdent_concepts'):
-        if dataset.startswith('3DIdent_concepts_obs'):
+        if dataset.startswith('3DIdent_concepts_obs') or dataset.startswith('3DIdent_concepts_pooled'):
             num_classes = 1
             concepts = ['obs']
         else:
