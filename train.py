@@ -179,7 +179,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
 
-        with autocast("cuda", dtype=torch.bfloat16):
+        with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
 
             output = model.module.decoder_output(logits)

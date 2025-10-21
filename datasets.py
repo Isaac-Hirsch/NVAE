@@ -627,12 +627,8 @@ def get_loaders_eval(dataset, args):
         train_data = IdentBoxDataset(directory, train=True, transform=train_transform)
         valid_data = IdentBoxDataset(directory, train=False, transform=valid_transform)
     elif dataset.startswith('3DIdent_concepts'):
-        if dataset.startswith('3DIdent_concepts_obs') or dataset.startswith('3DIdent_concepts_pooled'):
-            num_classes = 1
-            concepts = ['obs']
-        else:
-            num_classes = 4
-            concepts = ['obs', 'bg', 'obj', 'sl']
+        num_classes = 4
+        concepts = ['obs', 'bg', 'obj', 'sl']
         resize = int(dataset.split('-')[1])
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = ConceptsIdentBoxDataset(data_dir=args.data,
@@ -646,9 +642,9 @@ def get_loaders_eval(dataset, args):
         train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
         valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
         train_queue = torch.utils.data.DataLoader(
-            train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+            train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
         valid_queue = torch.utils.data.DataLoader(
-            valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+            valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
         return train_queue, valid_queue, num_classes
     elif dataset == 'concepts_mnist':
         num_classes = 7
