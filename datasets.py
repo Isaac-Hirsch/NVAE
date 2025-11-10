@@ -127,17 +127,20 @@ class ConceptsMNIST(Dataset):
         return self.data_size * 7
 
 class ConceptsMNISTSampler(Sampler):
-    def __init__(self, dataset, num_concepts, batch_size, args):
+    def __init__(self, dataset, num_concepts, batch_size, args, obs_only=False):
         self.batch_size = batch_size
         self.total_samples = len(dataset)
         self.samples_per_concept = self.total_samples // num_concepts
         self.concepts = [i for i in range(num_concepts)]
         self.dataset = dataset
         self.args = args
+        self.obs_only = obs_only
 
     def __iter__(self):
         batches = []
         for concept in self.concepts:
+            if self.obs_only and concept != 0:
+                continue
             start = concept * self.samples_per_concept
             stop = start + self.samples_per_concept
             indicies = np.arange(start=start, stop=stop, dtype=int)
@@ -151,7 +154,8 @@ class ConceptsMNISTSampler(Sampler):
                 yield batch
         
     def __len__(self):
-        return (self.total_samples + self.batch_size - 1) // self.batch_size
+        total_samples = self.total_samples if not self.obs_only else self.samples_per_concept
+        return (total_samples + self.batch_size - 1) // self.batch_size
 
 class ConceptsCeleba(Dataset):
     def __init__(self, root, split: str='train', transform=None,
@@ -265,18 +269,21 @@ class ConceptsCelebaNoOversampled(Dataset):
         return self.length
 
 class ConceptsCelebaSampler(Sampler):
-    def __init__(self, dataset, batch_size, args):
+    def __init__(self, dataset, batch_size, args, obs_only=False):
         self.batch_size = batch_size
         self.total_samples = len(dataset)
         self.concepts = dataset.concepts
         self.dataset = dataset
         self.args = args
         self.concept_indices = dataset.concept_indices
+        self.obs_only = obs_only
 
     def __iter__(self):
         batches = []
         images_seen = 0
         for concept in self.concepts:
+            if self.obs_only and concept != 'obs':
+                continue
             indicies = np.arange(start=images_seen, stop=images_seen + len(self.concept_indices[concept]), dtype=int)
             np.random.shuffle(indicies)
             for i in range(0, len(self.concept_indices[concept]), self.batch_size):
@@ -289,7 +296,8 @@ class ConceptsCelebaSampler(Sampler):
                 yield batch
     
     def __len__(self):
-        return (self.total_samples + self.batch_size - 1) // self.batch_size
+        total_samples = self.total_samples if not self.obs_only else len(self.concept_indices['obs'])
+        return (total_samples + self.batch_size - 1) // self.batch_size
 
 class ConceptsMPI3DToy(Dataset):
     def __init__(self, root, train=True, transform=None):
@@ -578,8 +586,9 @@ def get_loaders_eval(dataset, args):
                 train_data = ConceptsCeleba(root=args.data, split='train', transform=train_transform, concepts=concepts)
                 valid_data = ConceptsCeleba(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
             if args.arch_flag == 'concepts':
-                train_sampler = ConceptsCelebaSampler(train_data, args.batch_size, args)
-                valid_sampler = ConceptsCelebaSampler(valid_data, args.batch_size, args)
+                obs_only = 'obs' in dataset
+                train_sampler = ConceptsCelebaSampler(train_data, args.batch_size, args, obs_only=obs_only)
+                valid_sampler = ConceptsCelebaSampler(valid_data, args.batch_size, args, obs_only=obs_only)
                 train_queue = torch.utils.data.DataLoader(
                     train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
                 valid_queue = torch.utils.data.DataLoader(
@@ -646,7 +655,7 @@ def get_loaders_eval(dataset, args):
         valid_queue = torch.utils.data.DataLoader(
             valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=2)
         return train_queue, valid_queue, num_classes
-    elif dataset == 'concepts_mnist':
+    elif dataset in ['concepts_mnist', 'concepts_mnist_obs']:
         num_classes = 7
         train_transform, valid_transform = _data_transforms_concepts_mnist(args)
         train_data = ConceptsMNIST(
@@ -655,8 +664,9 @@ def get_loaders_eval(dataset, args):
             root=args.data, train=False, download=True, transform=valid_transform)
         
         if args.arch_flag == 'concepts':
-            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args)
-            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args)
+            obs_only = (dataset == 'concepts_mnist_obs')
+            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args, obs_only=obs_only)
+            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args, obs_only=obs_only)
             train_queue = torch.utils.data.DataLoader(
                 train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
             valid_queue = torch.utils.data.DataLoader(
@@ -706,7 +716,7 @@ def get_concepts(args) -> list[str]:
     """
     Get the list of concepts for the ConceptsMNIST dataset.
     """
-    if args.dataset == 'concepts_mnist':
+    if args.dataset in ['concepts_mnist', 'concepts_mnist_obs']:
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
         return ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']

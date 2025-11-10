@@ -250,7 +250,7 @@ class AutoEncoder(nn.Module):
 
     def init_stem(self):
         Cout = self.num_channels_enc
-        Cin = 1 if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'} else 3
+        Cin = 1 if self.dataset in {'mnist', 'omniglot', 'concepts_mnist', 'concepts_mnist_obs'} else 3
         stem = Conv2D(Cin, Cout, 3, padding=1, bias=True)
         return stem
 
@@ -382,7 +382,7 @@ class AutoEncoder(nn.Module):
 
     def init_image_conditional(self, mult):
         C_in = int(self.num_channels_dec * mult)
-        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'}:
+        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist', 'concepts_mnist_obs'}:
             C_out = 1
         else:
             if self.num_mix_output == 1:
@@ -556,11 +556,11 @@ class AutoEncoder(nn.Module):
         return logits
 
     def decoder_output(self, logits):
-        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist'}:
+        if self.dataset in {'mnist', 'omniglot', 'concepts_mnist', 'concepts_mnist_obs'}:
             return Bernoulli(logits=logits)
         elif self.dataset in {'stacked_mnist', 'cifar10', 'celeba_64', 'celeba_256', 'imagenet_32', 'imagenet_64', 'ffhq',
                               'lsun_bedroom_128', 'lsun_bedroom_256', 'lsun_church_64', 'lsun_church_128', 'identbox-hues_positions_rotations-64',
-                              'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', '3DIdent_concepts-64', '3DIdent_concepts_obs-64', 'concepts_mpi3d_toy',
+                              'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', 'celeba_concepts_obs_64', '3DIdent_concepts-64', '3DIdent_concepts_obs-64', 'concepts_mpi3d_toy',
                               'concepts_mpi3d_toy_new'
                               }:
             if self.num_mix_output == 1:
