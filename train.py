@@ -463,7 +463,7 @@ if __name__ == '__main__':
     ### NEW CODE
     #TODO update the help to match choices
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
-                        help='flag for architecture. Must be in [vanilla-obs, vanilla-pooled, concepts, single-pooled-concept]',
+                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept]',
                         choices=["vanilla", "concepts", "single-pooled-concept"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')

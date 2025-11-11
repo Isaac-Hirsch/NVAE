@@ -93,6 +93,9 @@ def main(rank, eval_args):
 
     if eval_args.dataset is not None:
         args.dataset = eval_args.dataset
+    if eval_args.arch_flag is not None:
+        args.arch_flag = eval_args.arch_flag
+        model.module.arch_flag = eval_args.arch_flag
 
     logging.info('args = %s', args)
     logging.info('num conv layers: %d', len(model.module.all_conv_layers))
@@ -437,6 +440,10 @@ if __name__ == '__main__':
     
     parser.add_argument('--dataset', type=str, default=None,
                         help='dataset used for evaluation')
+
+    parser.add_argument('--arch_flag', type=str,
+                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept]',
+                        choices=["vanilla", "concepts", "single-pooled-concept"])
 
     args = parser.parse_args()
     utils.create_exp_dir(args.save)
