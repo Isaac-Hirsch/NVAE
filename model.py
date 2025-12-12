@@ -20,7 +20,7 @@ from utils import get_stride_for_cell_type, get_input_size, groups_per_scale
 from distributions import Normal, DiscMixLogistic, NormalDecoder
 from thirdparty.inplaced_sync_batchnorm import SyncBatchNormSwish
 
-from concept_learning_template.conceptualizer import enc_conceptualizer, dec_conceptualizer
+from concept_learning_template.src.conceptualizer.conceptualizer import dec_conceptualizer
 from typing import Optional
 from functools import reduce
 

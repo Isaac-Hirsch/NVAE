@@ -31,7 +31,7 @@ def main(rank, args):
     args.global_rank = rank
     args.global_size = args.num_proc_node * args.num_process_per_node
     args.distributed = args.global_size > 1
-    setup(rank, args.global_size)
+    setup(rank, args.global_size, args.master_port)
     args.local_rank = rank % args.num_process_per_node
 
     torch.manual_seed(args.seed)
@@ -458,6 +458,8 @@ if __name__ == '__main__':
                         help='number of gpus')
     parser.add_argument('--master_address', type=str, default='127.0.0.1',
                         help='address for master')
+    parser.add_argument('--master_port', type=str, default='12345',
+                        help='port for master')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
     ### NEW CODE
@@ -492,10 +494,10 @@ if __name__ == '__main__':
         join=True
     )
 
-def setup(rank, world_size):
+def setup(rank, world_size, master_port):
     # initialize the process group
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = master_port
 
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
