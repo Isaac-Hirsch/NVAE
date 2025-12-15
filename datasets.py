@@ -135,8 +135,14 @@ class ConceptsMNISTSampler(Sampler):
         self.dataset = dataset
         self.args = args
         self.obs_only = obs_only
+        self.epoch = 0
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def __iter__(self):
+        # Use deterministic seeding so all ranks shuffle identically
+        rng = np.random.RandomState(self.epoch + self.args.seed if hasattr(self.args, 'seed') else self.epoch)
         batches = []
         for concept in self.concepts:
             if self.obs_only and concept != 0:
@@ -144,18 +150,31 @@ class ConceptsMNISTSampler(Sampler):
             start = concept * self.samples_per_concept
             stop = start + self.samples_per_concept
             indicies = np.arange(start=start, stop=stop, dtype=int)
-            np.random.shuffle(indicies)
+            rng.shuffle(indicies)
             for i in range(0, self.samples_per_concept, self.batch_size):
                 batch = indicies[i:i + self.batch_size]
                 batches.append(batch)
-        np.random.shuffle(batches)
+        rng.shuffle(batches)
+        
+        # Pad batches so all ranks get the same number
+        total_batches = len(batches)
+        world_size = self.args.global_size
+        padded_total = ((total_batches + world_size - 1) // world_size) * world_size
+        # Repeat batches to fill padding
+        while len(batches) < padded_total:
+            batches.append(batches[len(batches) % total_batches])
+        
+        # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % self.args.global_size == self.args.global_rank:
+            if i % world_size == self.args.global_rank:
                 yield batch
         
     def __len__(self):
         total_samples = self.total_samples if not self.obs_only else self.samples_per_concept
-        return (total_samples + self.batch_size - 1) // self.batch_size
+        total_batches = (total_samples + self.batch_size - 1) // self.batch_size
+        # Return per-rank batch count (padded to be equal across ranks)
+        world_size = self.args.global_size
+        return (total_batches + world_size - 1) // world_size
 
 class ConceptsCeleba(Dataset):
     def __init__(self, root, split: str='train', transform=None,
@@ -277,27 +296,46 @@ class ConceptsCelebaSampler(Sampler):
         self.args = args
         self.concept_indices = dataset.concept_indices
         self.obs_only = obs_only
+        self.epoch = 0
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def __iter__(self):
+        # Use deterministic seeding so all ranks shuffle identically
+        rng = np.random.RandomState(self.epoch + self.args.seed if hasattr(self.args, 'seed') else self.epoch)
         batches = []
         images_seen = 0
         for concept in self.concepts:
             if self.obs_only and concept != 'obs':
                 continue
             indicies = np.arange(start=images_seen, stop=images_seen + len(self.concept_indices[concept]), dtype=int)
-            np.random.shuffle(indicies)
+            rng.shuffle(indicies)
             for i in range(0, len(self.concept_indices[concept]), self.batch_size):
                 batch = indicies[i:i + self.batch_size]
                 batches.append(batch)
             images_seen += len(indicies)
-        np.random.shuffle(batches)
+        rng.shuffle(batches)
+        
+        # Pad batches so all ranks get the same number
+        total_batches = len(batches)
+        world_size = self.args.global_size
+        padded_total = ((total_batches + world_size - 1) // world_size) * world_size
+        # Repeat batches to fill padding
+        while len(batches) < padded_total:
+            batches.append(batches[len(batches) % total_batches])
+        
+        # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % self.args.global_size == self.args.global_rank:
+            if i % world_size == self.args.global_rank:
                 yield batch
     
     def __len__(self):
         total_samples = self.total_samples if not self.obs_only else len(self.concept_indices['obs'])
-        return (total_samples + self.batch_size - 1) // self.batch_size
+        total_batches = (total_samples + self.batch_size - 1) // self.batch_size
+        # Return per-rank batch count (padded to be equal across ranks)
+        world_size = self.args.global_size
+        return (total_batches + world_size - 1) // world_size
 
 class ConceptsMPI3DToy(Dataset):
     def __init__(self, root, train=True, transform=None):
@@ -428,15 +466,21 @@ class ConceptsMPI3DToySampler(Sampler):
         self.batch_size = batch_size
         self.samples_per_concept = dataset.concept_len
         self.args = args
+        self.epoch = 0
 
-        self.length = ((self.samples_per_concept + self.batch_size - 1) // self.batch_size) * len(dataset.concepts)
+        self.total_batches = ((self.samples_per_concept + self.batch_size - 1) // self.batch_size) * len(dataset.concepts)
     
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
     def __iter__(self):
+        # Use deterministic seeding so all ranks shuffle identically
+        rng = np.random.RandomState(self.epoch + self.args.seed if hasattr(self.args, 'seed') else self.epoch)
         batches = []
         start = 0
         for concept in self.dataset.concepts:
             concept_indices = list(range(start, start + self.samples_per_concept))
-            np.random.shuffle(concept_indices)
+            rng.shuffle(concept_indices)
             
             for i in range(0, self.samples_per_concept, self.batch_size):
                 batch = concept_indices[i:i + self.batch_size]
@@ -444,13 +488,25 @@ class ConceptsMPI3DToySampler(Sampler):
             
             start += self.samples_per_concept
             
-        np.random.shuffle(batches)  
+        rng.shuffle(batches)
+        
+        # Pad batches so all ranks get the same number
+        total_batches = len(batches)
+        world_size = self.args.global_size
+        padded_total = ((total_batches + world_size - 1) // world_size) * world_size
+        # Repeat batches to fill padding
+        while len(batches) < padded_total:
+            batches.append(batches[len(batches) % total_batches])
+        
+        # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % self.args.global_size == self.args.global_rank:
+            if i % world_size == self.args.global_rank:
                 yield batch
     
     def __len__(self):
-        return self.length
+        # Return per-rank batch count (padded to be equal across ranks)
+        world_size = self.args.global_size
+        return (self.total_batches + world_size - 1) // world_size
 
 def dict_collate_fn(batch):
     data = torch.stack(

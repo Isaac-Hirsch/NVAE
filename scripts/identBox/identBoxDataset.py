@@ -109,24 +109,43 @@ class ConceptsIdentBoxSampler(Sampler):
         self.dataset = dataset
         self.args = args
         self.data_list = dataset.data_list
+        self.epoch = 0
+        self.total_batches = (self.total_samples + self.batch_size - 1) // self.batch_size
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def __iter__(self):
+        # Use deterministic seeding so all ranks shuffle identically
+        rng = np.random.RandomState(self.epoch + self.args.seed if hasattr(self.args, 'seed') else self.epoch)
         batches = []
         images_seen = 0
         for i, concept in enumerate(self.concepts):
             indicies = np.arange(start=images_seen, stop=images_seen + len(self.data_list[i]), dtype=int)
-            np.random.shuffle(indicies)
+            rng.shuffle(indicies)
             for j in range(0, len(indicies), self.batch_size):
                 batch = indicies[j:j + self.batch_size]
                 batches.append(batch)
             images_seen += len(indicies)
-        np.random.shuffle(batches)
+        rng.shuffle(batches)
+        
+        # Pad batches so all ranks get the same number
+        total_batches = len(batches)
+        world_size = self.args.global_size
+        padded_total = ((total_batches + world_size - 1) // world_size) * world_size
+        # Repeat batches to fill padding
+        while len(batches) < padded_total:
+            batches.append(batches[len(batches) % total_batches])
+        
+        # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % self.args.global_size == self.args.global_rank:
+            if i % world_size == self.args.global_rank:
                 yield batch
     
     def __len__(self):
-        return (self.total_samples + self.batch_size - 1) // self.batch_size
+        # Return per-rank batch count (padded to be equal across ranks)
+        world_size = self.args.global_size
+        return (self.total_batches + world_size - 1) // world_size
 
 def data_transforms_identbox(size: int):
     train_transform = torchvision.transforms.Compose([

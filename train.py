@@ -102,6 +102,16 @@ def main(rank, args):
         if epoch > args.warmup_epochs:
             cnn_scheduler.step()
 
+        # Set epoch on samplers for proper shuffling across ranks
+        if hasattr(train_queue, 'batch_sampler') and hasattr(train_queue.batch_sampler, 'set_epoch'):
+            train_queue.batch_sampler.set_epoch(epoch)
+        if hasattr(valid_queue, 'batch_sampler') and hasattr(valid_queue.batch_sampler, 'set_epoch'):
+            valid_queue.batch_sampler.set_epoch(epoch)
+        if hasattr(train_queue, 'sampler') and hasattr(train_queue.sampler, 'set_epoch'):
+            train_queue.sampler.set_epoch(epoch)
+        if hasattr(valid_queue, 'sampler') and hasattr(valid_queue.sampler, 'set_epoch'):
+            valid_queue.sampler.set_epoch(epoch)
+
         # Logging.
         logging.info('epoch %d', epoch)
 
@@ -291,9 +301,6 @@ def test(valid_queue, model, num_samples, args, logging):
 
     utils.average_tensor(nelbo_avg.avg, args.distributed)
     utils.average_tensor(neg_log_p_avg.avg, args.distributed)
-    if args.distributed:
-        # block to sync
-        dist.barrier()
     logging.info('val, step: %d, NELBO: %f, neg Log p %f', step, nelbo_avg.avg, neg_log_p_avg.avg)
     return neg_log_p_avg.avg, nelbo_avg.avg
 
