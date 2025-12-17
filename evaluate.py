@@ -51,7 +51,7 @@ def main(rank, eval_args):
 
     # ensures that weight initializations are all the same
     print(f"Setting up process for rank {rank}")
-    setup(rank, eval_args.world_size)
+    setup(rank, eval_args.world_size, eval_args.master_port)
 
     logging = utils.Logger(eval_args.local_rank, eval_args.save)
 
@@ -437,7 +437,8 @@ if __name__ == '__main__':
                         help='seed used for initialization')
     parser.add_argument('--master_address', type=str, default='127.0.0.1',
                         help='address for master')
-    
+    parser.add_argument('--master_port', type=str, default='12355',
+                        help='port for master')
     parser.add_argument('--dataset', type=str, default=None,
                         help='dataset used for evaluation')
 
@@ -457,10 +458,10 @@ if __name__ == '__main__':
         join=True
     )
 
-def setup(rank, world_size):
+def setup(rank, world_size, master_port):
     # initialize the process group
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = master_port
 
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
