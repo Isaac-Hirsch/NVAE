@@ -100,12 +100,8 @@ def main(rank, args):
         # Set epoch on samplers for proper shuffling across ranks
         if hasattr(train_queue, 'batch_sampler') and hasattr(train_queue.batch_sampler, 'set_epoch'):
             train_queue.batch_sampler.set_epoch(epoch)
-        if hasattr(valid_queue, 'batch_sampler') and hasattr(valid_queue.batch_sampler, 'set_epoch'):
-            valid_queue.batch_sampler.set_epoch(epoch)
         if hasattr(train_queue, 'sampler') and hasattr(train_queue.sampler, 'set_epoch'):
             train_queue.sampler.set_epoch(epoch)
-        if hasattr(valid_queue, 'sampler') and hasattr(valid_queue.sampler, 'set_epoch'):
-            valid_queue.sampler.set_epoch(epoch)
 
         # Logging.
         logging.info('epoch %d', epoch)

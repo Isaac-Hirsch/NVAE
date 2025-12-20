@@ -63,6 +63,8 @@ def main(rank, eval_args):
 
     args.num_process_per_node = eval_args.world_size
     args.world_size = eval_args.world_size
+    args.global_rank = rank
+    args.global_size = eval_args.world_size  # For evaluation, num_proc_node is always 1
     args.distributed = eval_args.world_size > 1
 
     if not hasattr(args, 'ada_groups'):
@@ -257,11 +259,6 @@ def main(rank, eval_args):
         
     elif eval_args.eval_mode.startswith('reconstruction'):
         num_samples = 4
-
-        args.global_rank = rank
-        args.local_rank = rank
-        args.world_size = eval_args.world_size
-        args.distributed = eval_args.world_size > 1
         args.batch_size = num_samples
 
         train_queue, valid_queue, num_classes = datasets.get_loaders(args)
@@ -282,48 +279,60 @@ def main(rank, eval_args):
             total_samples = 100 // eval_args.world_size          # num images per gpu
             num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
-            for ind in range(num_iter):     # sampling is repeated.
-                torch.cuda.synchronize()
-                start = time()
-                with autocast("cuda"):
-                    x = next(iter(queue))
-                    if not isinstance(x, torch.Tensor):
-                        label = x[1]
-                        x = x[0]
-                    else:
-                        label = None
-                    x = x.to(rank)
-
-                    logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
-
-                    if label is not None:
-                        logging.info('label: %s', label)
-                    output = model.module.decoder_output(logits)
-
-                    x_img = x[:num_samples]
-                    output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
-                    output_img = output_img[:num_samples]
-
-                    x_img = x_img.permute(0, 2, 3, 1)
-                    output_img = output_img.permute(0, 2, 3, 1)
+            epoch = 0
+            while True:
+                # Set epoch on sampler for proper shuffling across ranks
+                if hasattr(queue, 'batch_sampler') and hasattr(queue.batch_sampler, 'set_epoch'):
+                    queue.batch_sampler.set_epoch(epoch)
+                if hasattr(queue, 'sampler') and hasattr(queue.sampler, 'set_epoch'):
+                    queue.sampler.set_epoch(epoch)
                     
-                    x_img = x_img.cpu().numpy()
-                    output_img = output_img.cpu().numpy()
+                for ind, x in enumerate(queue):
+                    if ind >= num_iter:
+                        break
+                    torch.cuda.synchronize()
+                    start = time()
+                    with autocast("cuda"):
+                        if not isinstance(x, torch.Tensor):
+                            label = x[1]
+                            x = x[0]
+                        else:
+                            label = None
+                        x = x.to(rank)
 
-                    fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
-                    for i in range(num_samples):
-                        cmap = 'gray'
-                        axes[0, i].imshow(x_img[i], cmap=cmap)
-                        axes[0, i].axis('off')
-                        axes[1, i].imshow(output_img[i], cmap=cmap)
-                        axes[1, i].axis('off')
-                    plt.tight_layout()
-                    plt.subplots_adjust(wspace=0, hspace=0)
-                    plt.margins(0, 0)
-                    plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
-                    plt.close(fig)
+                        logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
 
-                    logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+                        if label is not None:
+                            logging.info('label: %s', label)
+                        output = model.module.decoder_output(logits)
+
+                        x_img = x[:num_samples]
+                        output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
+                        output_img = output_img[:num_samples]
+
+                        x_img = x_img.permute(0, 2, 3, 1)
+                        output_img = output_img.permute(0, 2, 3, 1)
+                        
+                        x_img = x_img.cpu().numpy()
+                        output_img = output_img.cpu().numpy()
+
+                        fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
+                        for i in range(num_samples):
+                            cmap = 'gray'
+                            axes[0, i].imshow(x_img[i], cmap=cmap)
+                            axes[0, i].axis('off')
+                            axes[1, i].imshow(output_img[i], cmap=cmap)
+                            axes[1, i].axis('off')
+                        plt.tight_layout()
+                        plt.subplots_adjust(wspace=0, hspace=0)
+                        plt.margins(0, 0)
+                        plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+                        plt.close(fig)
+
+                        logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
+                
+                epoch += 1
+                
     elif eval_args.eval_mode in ['ood_metrics', 'id_metrics']:
         is_ood = eval_args.eval_mode == 'ood_metrics'
         concepts = datasets.get_concepts(args)

@@ -131,7 +131,7 @@ class ConceptsIdentBoxSampler(Sampler):
         
         # Pad batches so all ranks get the same number
         total_batches = len(batches)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         padded_total = ((total_batches + world_size - 1) // world_size) * world_size
         # Repeat batches to fill padding
         while len(batches) < padded_total:
@@ -139,12 +139,12 @@ class ConceptsIdentBoxSampler(Sampler):
         
         # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % world_size == self.args.global_rank:
+            if i % world_size == getattr(self.args, 'global_rank', 0):
                 yield batch
     
     def __len__(self):
         # Return per-rank batch count (padded to be equal across ranks)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         return (self.total_batches + world_size - 1) // world_size
 
 def data_transforms_identbox(size: int):
