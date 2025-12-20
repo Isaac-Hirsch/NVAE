@@ -44,11 +44,7 @@ def main(rank, args):
 
     # Get data loaders.
     train_queue, valid_queue, num_classes = datasets.get_loaders(args)
-    ### NEW CODE
-
     args.concepts = datasets.get_concepts(args)
-
-    ### NEW CODE
     args.num_total_iter = len(train_queue) * args.epochs
     warmup_iters = len(train_queue) * args.warmup_epochs
     swa_start = len(train_queue) * (args.epochs - 1)
@@ -90,12 +86,11 @@ def main(rank, args):
         cnn_optimizer.load_state_dict(checkpoint['optimizer'])
         grad_scalar.load_state_dict(checkpoint['grad_scalar'])
         cnn_scheduler.load_state_dict(checkpoint['scheduler'])
+        best_valid_nelbo = checkpoint.get('best_valid_nelbo', float('inf'))
         global_step = checkpoint['global_step']
     else:
-        global_step, init_epoch = 0, 0
+        global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
     
-    #Compiling model for faster performance
-
     for epoch in range(init_epoch, args.epochs):
         # update lrs.
 
@@ -143,15 +138,15 @@ def main(rank, args):
             writer.add_scalar('val/nelbo', valid_nelbo, epoch)
             writer.add_scalar('val/bpd_log_p', valid_neg_log_p * bpd_coeff, epoch)
             writer.add_scalar('val/bpd_elbo', valid_nelbo * bpd_coeff, epoch)
-
-        save_freq = int(np.ceil(args.epochs / 100))
-        if epoch % save_freq == 0 or epoch == (args.epochs - 1):
-            if args.global_rank == 0:
-                logging.info('saving the model.')
-                torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
-                            'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
-                            'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
+        
+            if valid_nelbo < best_valid_nelbo:
+                best_valid_nelbo = valid_nelbo
+                if args.global_rank == 0:
+                    logging.info('saving the model.')
+                    torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
+                                'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
+                                'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
+                                'grad_scalar': grad_scalar.state_dict(), 'best_valid_nelbo': best_valid_nelbo}, checkpoint_file)
 
     # Final validation
     valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=100, args=args, logging=logging)
@@ -469,8 +464,6 @@ if __name__ == '__main__':
                         help='port for master')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
-    ### NEW CODE
-    #TODO update the help to match choices
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
                         help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept]',
                         choices=["vanilla", "concepts", "single-pooled-concept"])
@@ -486,7 +479,6 @@ if __name__ == '__main__':
                         help='dimension of c')
     parser.add_argument('--c_width', type=int, default=2,
                         help='width of c')
-    ### NEW CODE
 
     args = parser.parse_args()
     args.save = args.root + '/eval-' + args.save
