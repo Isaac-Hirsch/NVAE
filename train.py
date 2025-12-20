@@ -77,17 +77,34 @@ def main(rank, args):
 
     # if load
     checkpoint_file = os.path.join(args.save, 'checkpoint.pt')
-    if args.cont_training:
-        logging.info('loading the model.')
-        checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
-        init_epoch = checkpoint['epoch']
+    if args.cont_training or args.arch_flag.startswith("fine-tune"):
+        if args.cont_training:
+            saved_model_file = checkpoint_file
+            logging.info('loading the saved model.')
+        else:
+            saved_model_file = args.finetune_pt
+            logging.info('loading the model.')
+        checkpoint = torch.load(saved_model_file, map_location='cpu', weights_only=False)
         model.load_state_dict(checkpoint['state_dict'])
         model = model.to(rank)
         cnn_optimizer.load_state_dict(checkpoint['optimizer'])
-        grad_scalar.load_state_dict(checkpoint['grad_scalar'])
-        cnn_scheduler.load_state_dict(checkpoint['scheduler'])
-        best_valid_nelbo = checkpoint.get('best_valid_nelbo', float('inf'))
-        global_step = checkpoint['global_step']
+
+        if args.arch_flag.startswith("fine-tune"):
+            global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
+            excluded_modules = ['expressive_in', 'ivn_eps', 'expressive_layer', 'causal_layer', 'unpool']
+            for name, param in uncomp_model.named_parameters():
+                if name in excluded_modules:
+                    param.requires_grad = True
+                    print(f"Keeping parameter unfrozen: {name}")
+                else:
+                    param.requires_grad = False
+                    print(f"Freezing parameter: {name}")
+        else:
+            init_epoch = checkpoint['epoch']
+            grad_scalar.load_state_dict(checkpoint['grad_scalar'])
+            cnn_scheduler.load_state_dict(checkpoint['scheduler'])
+            best_valid_nelbo = checkpoint.get('best_valid_nelbo', float('inf'))
+            global_step = checkpoint['global_step']
     else:
         global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
     
@@ -179,6 +196,12 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             lr = args.learning_rate * float(global_step) / warmup_iters
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
+        
+        if args.arch_flag.startswith('fine-tune') and global_step == args.freeze_iters:
+            for name, param in model.named_parameters():
+                if 'encoder' in name:
+                    param.requires_grad = True
+                    logging.info(f"Unfroze encoder parameter: {name}")
 
         with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
@@ -460,9 +483,10 @@ if __name__ == '__main__':
                         help='port for master')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
+    # Conceptualizer Module
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
-                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept]',
-                        choices=["vanilla", "concepts", "single-pooled-concept"])
+                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept, fine-tune-concept, fine-tune-concept-unfreeze]',
+                        choices=["vanilla", "concepts", "single-pooled-concept", "fine-tune-concept", "fine-tune-concept-unfreeze"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')
     parser.add_argument('--eps_in_width', type=int, default=3,
@@ -475,6 +499,10 @@ if __name__ == '__main__':
                         help='dimension of c')
     parser.add_argument('--c_width', type=int, default=2,
                         help='width of c')
+    parser.add_argument('--finetune_pt', type=str, default=None,
+                        help='path to pre-trained model for fine-tuning')
+    parser.add_argument('--freeze_iters', type=int, default = 1000,
+                        help='number of iterations to freeze the encoder')
 
     args = parser.parse_args()
     args.save = args.root + '/eval-' + args.save
