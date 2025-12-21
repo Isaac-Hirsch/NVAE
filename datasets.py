@@ -695,15 +695,18 @@ def get_loaders_eval(dataset, args):
         num_classes = 4
         concepts = ['obs', 'bg', 'obj', 'sl']
         resize = int(dataset.split('-')[1])
+        obs_only = 'obs' in dataset
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = ConceptsIdentBoxDataset(data_dir=args.data,
                                                 train=True,
                                                 concepts=concepts,
-                                                transform=train_transform)
+                                                transform=train_transform,
+                                                obs_only=obs_only)
         valid_data = ConceptsIdentBoxDataset(data_dir=args.data,
                                                 train=False,
                                                 concepts=concepts,
-                                                transform=valid_transform)
+                                                transform=valid_transform,
+                                                obs_only=obs_only)
         train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
         valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
         train_queue = torch.utils.data.DataLoader(

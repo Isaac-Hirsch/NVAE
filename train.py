@@ -25,6 +25,28 @@ from fid.fid_score import compute_statistics_of_generator, load_statistics, calc
 from fid.inception import InceptionV3
 
 
+def _adapt_state_dict_keys_for_model(state_dict, model):
+    if not isinstance(state_dict, dict):
+        return state_dict
+
+    model_keys = list(model.state_dict().keys())
+    model_has_module_prefix = any(k.startswith('module.') for k in model_keys)
+    sd_keys = list(state_dict.keys())
+    sd_has_module_prefix = all(k.startswith('module.') for k in sd_keys) if len(sd_keys) > 0 else False
+
+    if sd_has_module_prefix and not model_has_module_prefix:
+        return {k[len('module.'):]: v for k, v in state_dict.items()}
+    if (not sd_has_module_prefix) and model_has_module_prefix:
+        return {f'module.{k}': v for k, v in state_dict.items()}
+    return state_dict
+
+
+def _load_checkpoint_state_dict(target_model, checkpoint, strict):
+    state_dict = checkpoint.get('state_dict', checkpoint)
+    state_dict = _adapt_state_dict_keys_for_model(state_dict, target_model)
+    return target_model.load_state_dict(state_dict, strict=strict)
+
+
 def main(rank, args):
     # ensures that weight initializations are all the same
     print(f"Setting up process for rank {rank}")
@@ -85,26 +107,37 @@ def main(rank, args):
             saved_model_file = args.finetune_pt
             logging.info('loading the model.')
         checkpoint = torch.load(saved_model_file, map_location='cpu', weights_only=False)
-        model.load_state_dict(checkpoint['state_dict'])
+        try:
+            _load_checkpoint_state_dict(uncomp_model, checkpoint, strict=True)
+        except RuntimeError:
+            if args.arch_flag.startswith("fine-tune"):
+                _load_checkpoint_state_dict(uncomp_model, checkpoint, strict=False)
+            else:
+                raise
         model = model.to(rank)
-        cnn_optimizer.load_state_dict(checkpoint['optimizer'])
-
         if args.arch_flag.startswith("fine-tune"):
             global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
-            excluded_modules = ['expressive_in', 'ivn_eps', 'expressive_layer', 'causal_layer', 'unpool']
+            trainable_prefixes = (
+                'expressive_in.',
+                'ivn_eps.',
+                'expressive_layer.',
+                'causal_layer.',
+                'unpool.',
+            )
             for name, param in uncomp_model.named_parameters():
-                if name in excluded_modules:
+                if name.startswith(trainable_prefixes):
                     param.requires_grad = True
-                    print(f"Keeping parameter unfrozen: {name}")
+                    logging.info(f"Keeping parameter unfrozen: {name}")
                 else:
                     param.requires_grad = False
-                    print(f"Freezing parameter: {name}")
+                    logging.info(f"Freezing parameter: {name}")
         else:
             init_epoch = checkpoint['epoch']
             grad_scalar.load_state_dict(checkpoint['grad_scalar'])
             cnn_scheduler.load_state_dict(checkpoint['scheduler'])
             best_valid_nelbo = checkpoint.get('best_valid_nelbo', float('inf'))
             global_step = checkpoint['global_step']
+            cnn_optimizer.load_state_dict(checkpoint['optimizer'])
     else:
         global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
     
@@ -156,7 +189,7 @@ def main(rank, args):
                 best_valid_nelbo = valid_nelbo
                 if args.global_rank == 0:
                     logging.info('saving the model.')
-                    torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
+                    torch.save({'epoch': epoch + 1, 'state_dict': uncomp_model.state_dict(),
                                 'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
                                 'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
                                 'grad_scalar': grad_scalar.state_dict(), 'best_valid_nelbo': best_valid_nelbo}, checkpoint_file)
@@ -197,10 +230,10 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
         
-        if args.arch_flag.startswith('fine-tune') and global_step == args.freeze_iters:
+        if args.arch_flag == 'fine-tune-concept-unfreeze' and global_step == args.freeze_iters:
             for name, param in model.named_parameters():
-                if 'encoder' in name:
-                    param.requires_grad = True
+                if not param.requires_grad:
+                    param.requires_grad = True  
                     logging.info(f"Unfroze encoder parameter: {name}")
 
         with autocast("cuda"):

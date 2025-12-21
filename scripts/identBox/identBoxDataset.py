@@ -52,12 +52,16 @@ class ConceptsIdentBoxDataset(Dataset):
                 train: bool=True,
                 concepts: Optional[List[str]]=None,
                 transform: Optional[Transform]=None,
-                seed: int=1337
+                seed: int=1337,
+                obs_only: bool=False
             ):
         self.data_list = []
         self.factors_list = []
         self.train = train
         self.transform = transform
+        self.obs_only = obs_only
+        if obs_only:
+            concepts = ["obs"]
         self.concepts = concepts
 
         np.random.seed(seed=seed)
