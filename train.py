@@ -157,7 +157,7 @@ def main(rank, args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args)
+        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, cnn_scheduler,grad_scalar, global_step, warmup_iters, writer, logging, args)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
 
@@ -207,7 +207,7 @@ def main(rank, args):
     cleanup()
 
 
-def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args):
+def train(train_queue, model, cnn_optimizer, cnn_scheduler, grad_scalar, global_step, warmup_iters, writer, logging, args):
     alpha_i = utils.kl_balancer_coeff(num_scales=model.module.num_latent_scales,
                                       groups_per_scale=model.module.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
@@ -230,11 +230,28 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
         
-        if args.arch_flag == 'fine-tune-concept-unfreeze' and global_step == args.freeze_iters:
-            for name, param in model.named_parameters():
-                if not param.requires_grad:
-                    param.requires_grad = True  
-                    logging.info(f"Unfroze encoder parameter: {name}")
+        if args.arch_flag == 'fine-tune-concept-unfreeze' and global_step >= args.freeze_iters:
+            if global_step == args.freeze_iters:
+                for name, param in model.named_parameters():
+                    if not param.requires_grad:
+                        param.requires_grad = True  
+                        logging.info(f"Unfroze encoder parameter: {name}")
+            elif global_step - args.freeze_iters < warmup_iters:
+                trainable_prefixes = (
+                    'expressive_in.',
+                    'ivn_eps.',
+                    'expressive_layer.',
+                    'causal_layer.',
+                    'unpool.',
+                )
+                lr = cnn_scheduler.get_last_lr()[0] * (global_step - args.freeze_iters) / warmup_iters
+                for param_group in cnn_optimizer.param_groups:
+                    for name, param in model.module.named_parameters():
+                        if not name.startswith(trainable_prefixes):
+                            for p in param_group['params']:
+                                if p is param:
+                                    param_group['lr'] = lr
+                                    break
 
         with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
