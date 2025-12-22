@@ -91,7 +91,10 @@ def main(rank, eval_args):
     # Loading is not strict because of self.weight_normalized in Conv2D class in neural_operations. This variable
     # is only used for computing the spectral normalization and it is safe not to load it. Some of our earlier models
     # did not have this variable.
-    model.load_state_dict(checkpoint['state_dict'])
+    try:
+        model.load_state_dict(checkpoint['state_dict'])
+    except:
+        uncomp_model.load_state_dict(checkpoint['state_dict'])
 
     if eval_args.dataset is not None:
         args.dataset = eval_args.dataset
@@ -151,7 +154,7 @@ def main(rank, eval_args):
                 image_name = 'constant_noise_gpu_%d_samples_%d' % (eval_args.local_rank, ind)
                 sample_constant_noise(logging, model, args, eval_args, image_name=image_name, temp=eval_args.temp)
     elif eval_args.eval_mode.startswith('compare_2_concepts'):
-        assert args.arch_flag == 'concepts'
+        assert args.arch_flag in ['concepts', "fine-tune-concept", "fine-tune-concept-unfreeze"]
 
         concepts = (c for c in args.concepts if c != "obs")
         combos = list(combo for combo in combinations(concepts, 2))
@@ -260,6 +263,7 @@ def main(rank, eval_args):
     elif eval_args.eval_mode.startswith('reconstruction'):
         num_samples = 4
         args.batch_size = num_samples
+        args.data = eval_args.data
 
         train_queue, valid_queue, num_classes = datasets.get_loaders(args)
         if eval_args.eval_mode == 'reconstruction_train':
@@ -280,6 +284,7 @@ def main(rank, eval_args):
             num_iter = int(np.ceil(total_samples / num_samples))   # num iterations per gpu
 
             epoch = 0
+            iters = 0
             while True:
                 # Set epoch on sampler for proper shuffling across ranks
                 if hasattr(queue, 'batch_sampler') and hasattr(queue.batch_sampler, 'set_epoch'):
@@ -287,8 +292,8 @@ def main(rank, eval_args):
                 if hasattr(queue, 'sampler') and hasattr(queue.sampler, 'set_epoch'):
                     queue.sampler.set_epoch(epoch)
                     
-                for ind, x in enumerate(queue):
-                    if ind >= num_iter:
+                for x in queue:
+                    if iters >= num_iter:
                         break
                     torch.cuda.synchronize()
                     start = time()
@@ -310,27 +315,29 @@ def main(rank, eval_args):
                         output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
                         output_img = output_img[:num_samples]
 
-                        x_img = x_img.permute(0, 2, 3, 1)
-                        output_img = output_img.permute(0, 2, 3, 1)
-                        
-                        x_img = x_img.cpu().numpy()
-                        output_img = output_img.cpu().numpy()
+                    x_img = x_img.permute(0, 2, 3, 1)
+                    output_img = output_img.permute(0, 2, 3, 1)
+                    
+                    x_img = x_img.cpu().numpy()
+                    output_img = output_img.cpu().numpy()
 
-                        fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
-                        for i in range(num_samples):
-                            cmap = 'gray'
-                            axes[0, i].imshow(x_img[i], cmap=cmap)
-                            axes[0, i].axis('off')
-                            axes[1, i].imshow(output_img[i], cmap=cmap)
-                            axes[1, i].axis('off')
-                        plt.tight_layout()
-                        plt.subplots_adjust(wspace=0, hspace=0)
-                        plt.margins(0, 0)
-                        plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
-                        plt.close(fig)
+                    fig, axes = plt.subplots(2, num_samples, figsize=(num_samples, 2))
+                    for i in range(num_samples):
+                        cmap = 'gray'
+                        axes[0, i].imshow(x_img[i], cmap=cmap)
+                        axes[0, i].axis('off')
+                        axes[1, i].imshow(output_img[i], cmap=cmap)
+                        axes[1, i].axis('off')
+                    plt.tight_layout()
+                    plt.subplots_adjust(wspace=0, hspace=0)
+                    plt.margins(0, 0)
+                    plt.savefig(os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, iters)))
+                    plt.close(fig)
 
-                        logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, ind)))
-                
+                    logging.info('Saved at: %s', os.path.join(eval_args.save, 'gpu_%d_samples_%d.png' % (eval_args.local_rank, iters)))
+                    iters += 1
+                if iters >= num_iter:
+                    break
                 epoch += 1
                 
     elif eval_args.eval_mode in ['ood_metrics', 'id_metrics']:
@@ -348,7 +355,7 @@ def main(rank, eval_args):
 
             print(f'Loading data from {eval_args.data}')
             # TODO change so that if I am using ID, it takes validation dataloader from dataset.py
-            valid_queue = get_data_loader(eval_args.data, test_transform)
+            valid_queue = get_data_loader(eval_args.data, test_transform, eval_args.batch_size)
         else:
             dataset_concepts = list(concepts)
             logging.info('single concepts: %s', dataset_concepts)

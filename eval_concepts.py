@@ -141,9 +141,9 @@ class ood_dataset(Dataset):
             image = self.transform(image)
         return image, label
 
-def get_data_loader(data_path, transform):
+def get_data_loader(data_path, transform, batch_size):
     dataset = ood_dataset(data_path, transform)
-    data_loader = DataLoader(dataset, batch_size=512, shuffle=True, num_workers=0, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, collate_fn=dict_collate_fn, drop_last=True)
     return data_loader
 
 """
