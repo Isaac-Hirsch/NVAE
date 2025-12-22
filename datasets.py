@@ -721,16 +721,14 @@ def get_loaders_eval(dataset, args):
             root=args.data, train=True, download=True, transform=train_transform)
         valid_data = ConceptsMNIST(
             root=args.data, train=False, download=True, transform=valid_transform)
-        
-        if args.arch_flag == 'concepts':
-            obs_only = (dataset == 'concepts_mnist_obs')
-            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args, obs_only=obs_only)
-            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args, obs_only=obs_only)
-            train_queue = torch.utils.data.DataLoader(
-                train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
-            valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
-            return train_queue, valid_queue, num_classes
+        obs_only = (dataset == 'concepts_mnist_obs')
+        train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args, obs_only=obs_only)
+        valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args, obs_only=obs_only)
+        train_queue = torch.utils.data.DataLoader(
+            train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        valid_queue = torch.utils.data.DataLoader(
+            valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        return train_queue, valid_queue, num_classes
     elif dataset in ['concepts_mpi3d_toy', 'concepts_mpi3d_toy_new']:
         train_transform, valid_transform = _data_transforms_concepts_mpi3d_toy()
         if dataset == 'concepts_mpi3d_toy':
