@@ -158,7 +158,7 @@ class ConceptsMNISTSampler(Sampler):
         
         # Pad batches so all ranks get the same number
         total_batches = len(batches)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         padded_total = ((total_batches + world_size - 1) // world_size) * world_size
         # Repeat batches to fill padding
         while len(batches) < padded_total:
@@ -166,14 +166,14 @@ class ConceptsMNISTSampler(Sampler):
         
         # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % world_size == self.args.global_rank:
+            if i % world_size == getattr(self.args, 'global_rank', 0):
                 yield batch
         
     def __len__(self):
         total_samples = self.total_samples if not self.obs_only else self.samples_per_concept
         total_batches = (total_samples + self.batch_size - 1) // self.batch_size
         # Return per-rank batch count (padded to be equal across ranks)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         return (total_batches + world_size - 1) // world_size
 
 class ConceptsCeleba(Dataset):
@@ -319,7 +319,7 @@ class ConceptsCelebaSampler(Sampler):
         
         # Pad batches so all ranks get the same number
         total_batches = len(batches)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         padded_total = ((total_batches + world_size - 1) // world_size) * world_size
         # Repeat batches to fill padding
         while len(batches) < padded_total:
@@ -327,14 +327,14 @@ class ConceptsCelebaSampler(Sampler):
         
         # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % world_size == self.args.global_rank:
+            if i % world_size == getattr(self.args, 'global_rank', 0):
                 yield batch
     
     def __len__(self):
         total_samples = self.total_samples if not self.obs_only else len(self.concept_indices['obs'])
         total_batches = (total_samples + self.batch_size - 1) // self.batch_size
         # Return per-rank batch count (padded to be equal across ranks)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         return (total_batches + world_size - 1) // world_size
 
 class ConceptsMPI3DToy(Dataset):
@@ -492,7 +492,7 @@ class ConceptsMPI3DToySampler(Sampler):
         
         # Pad batches so all ranks get the same number
         total_batches = len(batches)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         padded_total = ((total_batches + world_size - 1) // world_size) * world_size
         # Repeat batches to fill padding
         while len(batches) < padded_total:
@@ -500,12 +500,12 @@ class ConceptsMPI3DToySampler(Sampler):
         
         # Each rank gets every world_size-th batch
         for i, batch in enumerate(batches):
-            if i % world_size == self.args.global_rank:
+            if i % world_size == getattr(self.args, 'global_rank', 0):
                 yield batch
     
     def __len__(self):
         # Return per-rank batch count (padded to be equal across ranks)
-        world_size = self.args.global_size
+        world_size = getattr(self.args, 'global_size', 1)
         return (self.total_batches + world_size - 1) // world_size
 
 def dict_collate_fn(batch):
@@ -633,7 +633,7 @@ def get_loaders_eval(dataset, args):
         else:
             resize = 64
             num_classes = 10
-            concepts = ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
+            concepts = ['obs', 'Male', 'Blond_Hair', 'Mouth_Slightly_Open']
             train_transform, valid_transform = _data_transforms_celeba64(resize)
             if 'no_oversampled' in dataset:
                 train_data = ConceptsCelebaNoOversampled(root=args.data, split='train', transform=train_transform, concepts=concepts)
@@ -695,15 +695,18 @@ def get_loaders_eval(dataset, args):
         num_classes = 4
         concepts = ['obs', 'bg', 'obj', 'sl']
         resize = int(dataset.split('-')[1])
+        obs_only = 'obs' in dataset
         train_transform, valid_transform = data_transforms_identbox(resize)
         train_data = ConceptsIdentBoxDataset(data_dir=args.data,
                                                 train=True,
                                                 concepts=concepts,
-                                                transform=train_transform)
+                                                transform=train_transform,
+                                                obs_only=obs_only)
         valid_data = ConceptsIdentBoxDataset(data_dir=args.data,
                                                 train=False,
                                                 concepts=concepts,
-                                                transform=valid_transform)
+                                                transform=valid_transform,
+                                                obs_only=obs_only)
         train_sampler = ConceptsIdentBoxSampler(train_data, args.batch_size, args)
         valid_sampler = ConceptsIdentBoxSampler(valid_data, args.batch_size, args)
         train_queue = torch.utils.data.DataLoader(
@@ -754,7 +757,7 @@ def get_loaders_eval(dataset, args):
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_data)
-        valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_data)
+        valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_data, shuffle=False)
 
     train_queue = torch.utils.data.DataLoader(
         train_data, batch_size=args.batch_size,

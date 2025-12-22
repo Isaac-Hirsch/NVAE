@@ -25,6 +25,28 @@ from fid.fid_score import compute_statistics_of_generator, load_statistics, calc
 from fid.inception import InceptionV3
 
 
+def _adapt_state_dict_keys_for_model(state_dict, model):
+    if not isinstance(state_dict, dict):
+        return state_dict
+
+    model_keys = list(model.state_dict().keys())
+    model_has_module_prefix = any(k.startswith('module.') for k in model_keys)
+    sd_keys = list(state_dict.keys())
+    sd_has_module_prefix = all(k.startswith('module.') for k in sd_keys) if len(sd_keys) > 0 else False
+
+    if sd_has_module_prefix and not model_has_module_prefix:
+        return {k[len('module.'):]: v for k, v in state_dict.items()}
+    if (not sd_has_module_prefix) and model_has_module_prefix:
+        return {f'module.{k}': v for k, v in state_dict.items()}
+    return state_dict
+
+
+def _load_checkpoint_state_dict(target_model, checkpoint, strict):
+    state_dict = checkpoint.get('state_dict', checkpoint)
+    state_dict = _adapt_state_dict_keys_for_model(state_dict, target_model)
+    return target_model.load_state_dict(state_dict, strict=strict)
+
+
 def main(rank, args):
     # ensures that weight initializations are all the same
     print(f"Setting up process for rank {rank}")
@@ -44,11 +66,7 @@ def main(rank, args):
 
     # Get data loaders.
     train_queue, valid_queue, num_classes = datasets.get_loaders(args)
-    ### NEW CODE
-
     args.concepts = datasets.get_concepts(args)
-
-    ### NEW CODE
     args.num_total_iter = len(train_queue) * args.epochs
     warmup_iters = len(train_queue) * args.warmup_epochs
     swa_start = len(train_queue) * (args.epochs - 1)
@@ -81,21 +99,48 @@ def main(rank, args):
 
     # if load
     checkpoint_file = os.path.join(args.save, 'checkpoint.pt')
-    if args.cont_training:
-        logging.info('loading the model.')
-        checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
-        init_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
+    if args.cont_training or args.arch_flag.startswith("fine-tune"):
+        if args.cont_training:
+            saved_model_file = checkpoint_file
+            logging.info('loading the saved model.')
+        else:
+            saved_model_file = args.finetune_pt
+            logging.info('loading the model.')
+        checkpoint = torch.load(saved_model_file, map_location='cpu', weights_only=False)
+        try:
+            _load_checkpoint_state_dict(uncomp_model, checkpoint, strict=True)
+        except RuntimeError:
+            if args.arch_flag.startswith("fine-tune"):
+                _load_checkpoint_state_dict(uncomp_model, checkpoint, strict=False)
+            else:
+                raise
         model = model.to(rank)
-        cnn_optimizer.load_state_dict(checkpoint['optimizer'])
-        grad_scalar.load_state_dict(checkpoint['grad_scalar'])
-        cnn_scheduler.load_state_dict(checkpoint['scheduler'])
-        global_step = checkpoint['global_step']
+        if args.arch_flag.startswith("fine-tune"):
+            global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
+            trainable_prefixes = (
+                'expressive_in.',
+                'ivn_eps.',
+                'expressive_layer.',
+                'causal_layer.',
+                'unpool.',
+            )
+            for name, param in uncomp_model.named_parameters():
+                if name.startswith(trainable_prefixes):
+                    param.requires_grad = True
+                    logging.info(f"Keeping parameter unfrozen: {name}")
+                else:
+                    param.requires_grad = False
+                    logging.info(f"Freezing parameter: {name}")
+        else:
+            init_epoch = checkpoint['epoch']
+            grad_scalar.load_state_dict(checkpoint['grad_scalar'])
+            cnn_scheduler.load_state_dict(checkpoint['scheduler'])
+            best_valid_nelbo = checkpoint.get('best_valid_nelbo', float('inf'))
+            global_step = checkpoint['global_step']
+            cnn_optimizer.load_state_dict(checkpoint['optimizer'])
     else:
-        global_step, init_epoch = 0, 0
+        global_step, init_epoch, best_valid_nelbo = 0, 0, float('inf')
     
-    #Compiling model for faster performance
-
     for epoch in range(init_epoch, args.epochs):
         # update lrs.
 
@@ -105,18 +150,14 @@ def main(rank, args):
         # Set epoch on samplers for proper shuffling across ranks
         if hasattr(train_queue, 'batch_sampler') and hasattr(train_queue.batch_sampler, 'set_epoch'):
             train_queue.batch_sampler.set_epoch(epoch)
-        if hasattr(valid_queue, 'batch_sampler') and hasattr(valid_queue.batch_sampler, 'set_epoch'):
-            valid_queue.batch_sampler.set_epoch(epoch)
         if hasattr(train_queue, 'sampler') and hasattr(train_queue.sampler, 'set_epoch'):
             train_queue.sampler.set_epoch(epoch)
-        if hasattr(valid_queue, 'sampler') and hasattr(valid_queue.sampler, 'set_epoch'):
-            valid_queue.sampler.set_epoch(epoch)
 
         # Logging.
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args)
+        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, cnn_scheduler,grad_scalar, global_step, warmup_iters, writer, logging, args)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
 
@@ -143,15 +184,15 @@ def main(rank, args):
             writer.add_scalar('val/nelbo', valid_nelbo, epoch)
             writer.add_scalar('val/bpd_log_p', valid_neg_log_p * bpd_coeff, epoch)
             writer.add_scalar('val/bpd_elbo', valid_nelbo * bpd_coeff, epoch)
-
-        save_freq = int(np.ceil(args.epochs / 100))
-        if epoch % save_freq == 0 or epoch == (args.epochs - 1):
-            if args.global_rank == 0:
-                logging.info('saving the model.')
-                torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
-                            'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
-                            'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
+        
+            if valid_nelbo < best_valid_nelbo:
+                best_valid_nelbo = valid_nelbo
+                if args.global_rank == 0:
+                    logging.info('saving the model.')
+                    torch.save({'epoch': epoch + 1, 'state_dict': uncomp_model.state_dict(),
+                                'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
+                                'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
+                                'grad_scalar': grad_scalar.state_dict(), 'best_valid_nelbo': best_valid_nelbo}, checkpoint_file)
 
     # Final validation
     valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=100, args=args, logging=logging)
@@ -166,7 +207,7 @@ def main(rank, args):
     cleanup()
 
 
-def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging, args):
+def train(train_queue, model, cnn_optimizer, cnn_scheduler, grad_scalar, global_step, warmup_iters, writer, logging, args):
     alpha_i = utils.kl_balancer_coeff(num_scales=model.module.num_latent_scales,
                                       groups_per_scale=model.module.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
@@ -188,6 +229,29 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             lr = args.learning_rate * float(global_step) / warmup_iters
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
+        
+        if args.arch_flag == 'fine-tune-concept-unfreeze' and global_step >= args.freeze_iters:
+            if global_step == args.freeze_iters:
+                for name, param in model.named_parameters():
+                    if not param.requires_grad:
+                        param.requires_grad = True  
+                        logging.info(f"Unfroze encoder parameter: {name}")
+            elif global_step - args.freeze_iters < warmup_iters:
+                trainable_prefixes = (
+                    'expressive_in.',
+                    'ivn_eps.',
+                    'expressive_layer.',
+                    'causal_layer.',
+                    'unpool.',
+                )
+                lr = cnn_scheduler.get_last_lr()[0] * (global_step - args.freeze_iters) / warmup_iters
+                for param_group in cnn_optimizer.param_groups:
+                    for name, param in model.module.named_parameters():
+                        if not name.startswith(trainable_prefixes):
+                            for p in param_group['params']:
+                                if p is param:
+                                    param_group['lr'] = lr
+                                    break
 
         with autocast("cuda"):
             logits, log_q, log_p, kl_all, kl_diag = model(x, batch_label=label)
@@ -469,11 +533,10 @@ if __name__ == '__main__':
                         help='port for master')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
-    ### NEW CODE
-    #TODO update the help to match choices
+    # Conceptualizer Module
     parser.add_argument('--arch_flag', type=str, default="vanilla-pooled",
-                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept]',
-                        choices=["vanilla", "concepts", "single-pooled-concept"])
+                        help='flag for architecture. Must be in [vanilla, concepts, single-pooled-concept, fine-tune-concept, fine-tune-concept-unfreeze]',
+                        choices=["vanilla", "concepts", "single-pooled-concept", "fine-tune-concept", "fine-tune-concept-unfreeze"])
     parser.add_argument('--eps_dim', type=int, default=8,
                         help='dimension of epsilon')
     parser.add_argument('--eps_in_width', type=int, default=3,
@@ -486,7 +549,10 @@ if __name__ == '__main__':
                         help='dimension of c')
     parser.add_argument('--c_width', type=int, default=2,
                         help='width of c')
-    ### NEW CODE
+    parser.add_argument('--finetune_pt', type=str, default=None,
+                        help='path to pre-trained model for fine-tuning')
+    parser.add_argument('--freeze_iters', type=int, default = 1000,
+                        help='number of iterations to freeze the encoder')
 
     args = parser.parse_args()
     args.save = args.root + '/eval-' + args.save

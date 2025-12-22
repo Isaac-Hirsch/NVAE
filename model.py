@@ -198,7 +198,6 @@ class AutoEncoder(nn.Module):
         self.sr_v = {}
         self.num_power_iter = 4
 
-    ### NEW CODE
         self.args = args
         self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
         if "vanilla" not in args.arch_flag:
@@ -226,7 +225,6 @@ class AutoEncoder(nn.Module):
         self.arch_flag = args.arch_flag
     
     def conceptualize(self, z, batch_label: Union[str, List[str], Tuple[str, ...]]):
-        # our module
         if isinstance(batch_label, str):
             batch_label = [batch_label]
 
@@ -246,7 +244,6 @@ class AutoEncoder(nn.Module):
         if torch.sum(torch.isnan(c)) > 0:
             print("NaN in conceptualized c")
         return torch.unflatten(c, dim=1, sizes=self.z0_size)
-    ### NEW CODE
 
     def init_stem(self):
         Cout = self.num_channels_enc
@@ -440,10 +437,8 @@ class AutoEncoder(nn.Module):
         all_p = [dist]
         all_log_p = [log_p_conv]
 
-        ### NEW CODE
         if "vanilla" not in self.arch_flag:
             z = self.conceptualize(z, batch_label)
-        ### NEW CODE
 
         idx_dec = 0
         s = self.prior_ftr0.unsqueeze(0)
@@ -518,12 +513,10 @@ class AutoEncoder(nn.Module):
             dist = Normal(mu=torch.zeros(z0_size).cuda(), log_sigma=torch.zeros(z0_size).cuda(), temp=t)
             z, _ = dist.sample()
 
-        ### NEW CODE
         if "vanilla" not in self.arch_flag:
             if batch_label is None:
                 batch_label = self.args.concepts[torch.randint(0, len(self.args.concepts), (1,)).item()]
             z = self.conceptualize(z, batch_label)
-        ### NEW CODE
 
         idx_dec = 0
         s = self.prior_ftr0.unsqueeze(0)
