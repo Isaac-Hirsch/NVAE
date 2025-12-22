@@ -776,7 +776,7 @@ def get_concepts(args) -> list[str]:
     if args.dataset in ['concepts_mnist', 'concepts_mnist_obs']:
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
-        return ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
+        return ['obs', 'Male', 'Blond_Hair', 'Mouth_Slightly_Open']
     elif args.dataset.startswith('3DIdent_concepts'):
         return ['obs', 'bg', 'obj', 'sl']
     elif args.dataset == 'concepts_mpi3d_toy':
