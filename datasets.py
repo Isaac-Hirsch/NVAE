@@ -721,16 +721,14 @@ def get_loaders_eval(dataset, args):
             root=args.data, train=True, download=True, transform=train_transform)
         valid_data = ConceptsMNIST(
             root=args.data, train=False, download=True, transform=valid_transform)
-        
-        if args.arch_flag == 'concepts':
-            obs_only = (dataset == 'concepts_mnist_obs')
-            train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args, obs_only=obs_only)
-            valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args, obs_only=obs_only)
-            train_queue = torch.utils.data.DataLoader(
-                train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
-            valid_queue = torch.utils.data.DataLoader(
-                valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
-            return train_queue, valid_queue, num_classes
+        obs_only = (dataset == 'concepts_mnist_obs')
+        train_sampler = ConceptsMNISTSampler(train_data, num_classes, args.batch_size, args, obs_only=obs_only)
+        valid_sampler = ConceptsMNISTSampler(valid_data, num_classes, args.batch_size, args, obs_only=obs_only)
+        train_queue = torch.utils.data.DataLoader(
+            train_data, batch_sampler=train_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        valid_queue = torch.utils.data.DataLoader(
+            valid_data, batch_sampler=valid_sampler, collate_fn=dict_collate_fn, pin_memory=True, num_workers=0)
+        return train_queue, valid_queue, num_classes
     elif dataset in ['concepts_mpi3d_toy', 'concepts_mpi3d_toy_new']:
         train_transform, valid_transform = _data_transforms_concepts_mpi3d_toy()
         if dataset == 'concepts_mpi3d_toy':
@@ -778,7 +776,7 @@ def get_concepts(args) -> list[str]:
     if args.dataset in ['concepts_mnist', 'concepts_mnist_obs']:
         return ['obs', 'scaled', 'shear', 'shift', 'swel', 'thic', 'thin']
     elif args.dataset.startswith('celeba_concepts'):
-        return ['obs', 'Male', 'Black_Hair', 'Blond_Hair', 'Bags_Under_Eyes', 'Mouth_Slightly_Open']
+        return ['obs', 'Male', 'Blond_Hair', 'Mouth_Slightly_Open']
     elif args.dataset.startswith('3DIdent_concepts'):
         return ['obs', 'bg', 'obj', 'sl']
     elif args.dataset == 'concepts_mpi3d_toy':
