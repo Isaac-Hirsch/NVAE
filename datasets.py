@@ -219,7 +219,7 @@ class ConceptsCeleba(Dataset):
                 img, target = self.data[indicies[index - images_seen]]
                 return img, concept
             images_seen += len(indicies)
-        raise IndexError(f"Index {index} out of range for Concepts_Celeba_64 dataset")
+        raise IndexError(f"Index {index} out of range for Concepts_Celeba dataset")
     
     def __len__(self):
         return self.length
@@ -282,7 +282,7 @@ class ConceptsCelebaNoOversampled(Dataset):
                 img, target = self.data[indicies[index - images_seen]]
                 return img, concept
             images_seen += len(indicies)
-        raise IndexError(f"Index {index} out of range for Concepts_Celeba_64 dataset")
+        raise IndexError(f"Index {index} out of range for Concepts_Celeba dataset")
     
     def __len__(self):
         return self.length
@@ -631,10 +631,16 @@ def get_loaders_eval(dataset, args):
             else:
                 raise NotImplementedError
         else:
-            resize = 64
+            if dataset == 'celeba_64':
+                resize = 64
+                train_transform, valid_transform = _data_transforms_celeba64(resize)
+            elif dataset in {'celeba_256'}:
+                resize = int(dataset.split('_')[1])
+                train_transform, valid_transform = _data_transforms_generic(resize)
+            else:
+                raise NotImplementedError
             num_classes = 10
             concepts = ['obs', 'Male', 'Blond_Hair', 'Mouth_Slightly_Open']
-            train_transform, valid_transform = _data_transforms_celeba64(resize)
             if 'no_oversampled' in dataset:
                 train_data = ConceptsCelebaNoOversampled(root=args.data, split='train', transform=train_transform, concepts=concepts)
                 valid_data = ConceptsCelebaNoOversampled(root=args.data, split='valid', transform=valid_transform, concepts=concepts)
