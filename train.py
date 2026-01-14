@@ -437,7 +437,7 @@ if __name__ == '__main__':
                                  'lsun_church_128', 'lsun_church_64', 'identbox-hues_positions_rotations-64',
                                  'concepts_mnist', 'concepts_mnist_obs',
                                  'celeba_concepts_64', 'celeba_concepts_no_oversampled_64', 'celeba_concepts_obs_64',
-                                 'celeba_concepts_256', 'celeba_concepts_no_oversampled_256', 'celeba_concepts_obs_256',
+                                 'celeba_concepts_128', 'celeba_concepts_no_oversampled_128', 'celeba_concepts_obs_128',
                                  '3DIdent_concepts-64', '3DIdent_concepts_obs-64',
                                  'concepts_mpi3d_toy', 'concepts_mpi3d_toy_new'],
                         help='which dataset to use')

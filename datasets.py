@@ -536,6 +536,26 @@ class CropCelebA64(object):
     def __repr__(self):
         return self.__class__.__name__ + '()'
 
+class CropCelebAGeneric(object):
+    """ This class applies cropping for CelebA to any size <= 178. This is a simplified implementation of:
+    https://github.com/andersbll/autoencoding_beyond_pixels/blob/master/dataset/celeba.py
+    """
+    def __init__(self, size: int):
+        assert isinstance(size, int)
+        assert size >= 1
+        assert size <= 178
+
+        self.size = size
+
+    def __call__(self, pic):
+        start_x = (178 - self.size) // 2
+        start_y = (218 - self.size) // 2
+        new_pic = pic.crop((start_x, start_y, start_x + self.size, start_y + self.size))
+        return new_pic
+
+    def __repr__(self):
+        return self.__class__.__name__ + '()'
+
 
 def get_loaders(args):
     """Get data loaders for required dataset."""
@@ -631,12 +651,12 @@ def get_loaders_eval(dataset, args):
             else:
                 raise NotImplementedError
         else:
-            if dataset == 'celeba_64':
+            if dataset == 'celeba_concepts_64':
                 resize = 64
                 train_transform, valid_transform = _data_transforms_celeba64(resize)
-            elif dataset in {'celeba_256'}:
-                resize = int(dataset.split('_')[1])
-                train_transform, valid_transform = _data_transforms_generic(resize)
+            elif dataset in {'celeba_concepts_128'}:
+                resize = int(dataset.split('_')[-1])
+                train_transform, valid_transform = _data_transforms_celeba_generic(resize)
             else:
                 raise NotImplementedError
             num_classes = 10
@@ -868,6 +888,22 @@ def _data_transforms_generic(size):
 
 
 def _data_transforms_celeba64(size):
+    train_transform = transforms.Compose([
+        CropCelebA64(),
+        transforms.Resize(size),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+    ])
+
+    valid_transform = transforms.Compose([
+        CropCelebA64(),
+        transforms.Resize(size),
+        transforms.ToTensor(),
+    ])
+
+    return train_transform, valid_transform
+
+def _data_transforms_celeba_generic(size):
     train_transform = transforms.Compose([
         CropCelebA64(),
         transforms.Resize(size),
