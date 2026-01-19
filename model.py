@@ -153,6 +153,10 @@ class AutoEncoder(nn.Module):
         self.prior_ftr0 = nn.Parameter(torch.rand(size=prior_ftr0_size), requires_grad=True)
         self.z0_size = [self.num_latent_per_group, self.input_size // spatial_scaling, self.input_size // spatial_scaling]
 
+        self.args = args
+        self.arch_flag = args.arch_flag
+        self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
+
         self.stem = self.init_stem()
         self.pre_process, mult = self.init_pre_process(mult=1)
 
@@ -198,8 +202,6 @@ class AutoEncoder(nn.Module):
         self.sr_v = {}
         self.num_power_iter = 4
 
-        self.args = args
-        self.decode_dim = reduce(lambda x, y: x * y, self.z0_size)
         if "vanilla" not in args.arch_flag:
             self.expressive_in = nn.Conv2d(
                 in_channels=2 * self.z0_size[0],
@@ -221,8 +223,6 @@ class AutoEncoder(nn.Module):
                     args.arch_flag
                 )
             )
-
-        self.arch_flag = args.arch_flag
     
     def conceptualize(self, z, batch_label: Union[str, List[str], Tuple[str, ...]]):
         if isinstance(batch_label, str):
@@ -319,8 +319,11 @@ class AutoEncoder(nn.Module):
                 for n in range(self.num_flows):
                     arch = self.arch_instance['ar_nn']
                     num_c1 = int(self.num_channels_enc * mult)
-                    num_c2 = 8 * self.num_latent_per_group  # use 8x features
-                    nf_cells.append(PairedCellAR(self.num_latent_per_group, num_c1, num_c2, arch))
+                    # Only first group (s==0, g==0) uses expressive latent dim; others use num_latent_per_group
+                    is_first_group = (s == 0 and g == 0)
+                    nf_latent_dim = self.args.eps_dim * self.args.eps_in_width if (is_first_group and "vanilla" not in self.arch_flag) else self.num_latent_per_group
+                    num_c2 = 8 * nf_latent_dim  # use 8x features
+                    nf_cells.append(PairedCellAR(nf_latent_dim, num_c1, num_c2, arch))
                 if not (s == 0 and g == 0):  # for the first group, we use a fixed standard Normal.
                     num_c = int(self.num_channels_dec * mult)
                     cell = nn.Sequential(
