@@ -241,8 +241,6 @@ class AutoEncoder(nn.Module):
         else:
             c = self.causal_layer(epsilon, batch_label)
         c = self.unpool(c)
-        if torch.sum(torch.isnan(c)) > 0:
-            print("NaN in conceptualized c")
         return torch.unflatten(c, dim=1, sizes=self.z0_size)
 
     def init_stem(self):
