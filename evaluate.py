@@ -29,7 +29,7 @@ from train import test, init_processes, test_vae_fid
 import networkx as nx
 from itertools import combinations
 
-from evaulate_concepts import get_dag, sample_constant_noise
+from evaluate_concepts import get_dag, sample_constant_noise
 
 from eval_concepts import compute_ood_metrics, get_data_loader
 from scripts.identBox.identBoxDataset import data_transforms_identbox
