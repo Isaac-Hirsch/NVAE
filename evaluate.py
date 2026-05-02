@@ -168,7 +168,7 @@ def main(rank, eval_args):
             bn_eval_mode = not eval_args.readjust_bn
             set_bn(model, bn_eval_mode, num_samples=16, t=eval_args.temp, iter=500)
 
-            num_iter = 100
+            num_iter = 1000
             for ind in range(num_iter):
                 combo = combos[ind % len(combos)]
                 logging.info('combo: %s', combo)
@@ -231,7 +231,7 @@ def main(rank, eval_args):
                     axes[0, 0].set_ylabel('Observation', fontsize=20, rotation=0, va='center', ha='right')
                     axes[1, 0].set_ylabel('Concept 1', fontsize=20, rotation=0, va='center', ha='right')
                     axes[2, 0].set_ylabel('Concept 2', fontsize=20, rotation=0, va='center', ha='right')
-                    axes[3, 0].set_ylabel('Combo', fontsize=20, rotation=0, va='center', ha='right')
+                    axes[3, 0].set_ylabel('Compo', fontsize=20, rotation=0, va='center', ha='right')
                 
                 # TODO change this to something scalable
                 concept_name_dict = {
