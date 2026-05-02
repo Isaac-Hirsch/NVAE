@@ -1,0 +1,31 @@
+[project]
+name = "nvae"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "pillow",
+    "tensorboard",
+    "tensorboardX",
+    "lmdb",
+    "tfrecord",
+    "scipy",
+    "matplotlib==3.10.1",
+    "torchinfo==1.8.0",
+    "virtualenv",
+    "seaborn",
+    "pandas",
+    "numpy",
+    "tqdm",
+    "POT",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
