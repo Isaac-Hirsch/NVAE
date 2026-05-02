@@ -1,24 +1,26 @@
 [project]
 name = "nvae"
 version = "0.1.0"
-requires-python = ">=3.10"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
 dependencies = [
-    "torch==2.7.1",
-    "torchvision==0.22.1",
-    "pillow",
-    "tensorboard",
-    "tensorboardX",
-    "lmdb",
-    "tfrecord",
-    "scipy",
+    "lmdb>=2.2.0",
     "matplotlib==3.10.1",
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "pillow>=12.2.0",
+    "pot>=0.9.6.post1",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "tensorboard>=2.20.0",
+    "tensorboardx>=2.6.5",
+    "tfrecord>=1.14.6",
+    "torch==2.7.1",
     "torchinfo==1.8.0",
-    "virtualenv",
-    "seaborn",
-    "pandas",
-    "numpy",
-    "tqdm",
-    "POT",
+    "torchvision==0.22.1",
+    "tqdm>=4.67.3",
+    "virtualenv>=21.3.0",
 ]
 
 [[tool.uv.index]]
