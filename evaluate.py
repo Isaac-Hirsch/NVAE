@@ -354,7 +354,6 @@ def main(rank, eval_args):
                 train_transform, test_transform = None, None
 
             print(f'Loading data from {eval_args.data}')
-            # TODO change so that if I am using ID, it takes validation dataloader from dataset.py
             valid_queue = get_data_loader(eval_args.data, test_transform, eval_args.batch_size)
         else:
             dataset_concepts = list(concepts)
