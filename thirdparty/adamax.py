@@ -120,6 +120,8 @@ class Adamax(Optimizer):
 
         for group in self.param_groups:
             for p in group['params']:
+                if p.grad is None:
+                    continue
                 idx = params[p.shape]['idx']
                 p.data = params[p.shape]['data'][idx, :]
                 self.state[p]['exp_avg'] = exp_avg[p.shape][idx, :]
