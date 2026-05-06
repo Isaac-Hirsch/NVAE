@@ -233,7 +233,6 @@ def main(rank, eval_args):
                     axes[2, 0].set_ylabel('Concept 2', fontsize=20, rotation=0, va='center', ha='right')
                     axes[3, 0].set_ylabel('Compo', fontsize=20, rotation=0, va='center', ha='right')
                 
-                # TODO change this to something scalable
                 concept_name_dict = {
                     'obs': 'Observation',
                     'obj': 'Object',
