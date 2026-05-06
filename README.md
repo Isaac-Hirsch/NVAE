@@ -47,7 +47,7 @@ export EXPR_ID=UNIQUE_EXPR_ID
 export DATA_DIR=PATH_TO_DATA_DIR
 export CHECKPOINT_DIR=PATH_TO_CHECKPOINT_DIR
 export CODE_DIR=PATH_TO_CODE_DIR
-export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_DIR
+export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_FILE 
 
 cd $CODE_DIR
 
@@ -68,7 +68,7 @@ export EXPR_ID=UNIQUE_EXPR_ID
 export DATA_DIR=PATH_TO_DATA_DIR
 export CHECKPOINT_DIR=PATH_TO_CHECKPOINT_DIR
 export CODE_DIR=PATH_TO_CODE_DIR
-export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_DIR
+export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_FILE 
 
 cd $CODE_DIR
 
@@ -177,7 +177,7 @@ export EXPR_ID=UNIQUE_EXPR_ID
 export DATA_DIR=PATH_TO_DATA_DIR
 export CHECKPOINT_DIR=PATH_TO_CHECKPOINT_DIR
 export CODE_DIR=PATH_TO_CODE_DIR
-export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_DIR
+export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_FILE 
 
 cd $CODE_DIR
 
@@ -199,7 +199,7 @@ export EXPR_ID=UNIQUE_EXPR_ID
 export DATA_DIR=PATH_TO_DATA_DIR
 export CHECKPOINT_DIR=PATH_TO_CHECKPOINT_DIR
 export CODE_DIR=PATH_TO_CODE_DIR
-export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_DIR
+export CHECKPOINT_DIR_BASE=PATH_TO_BASE_MODEL_CHECKPOINT_FILE 
 
 cd $CODE_DIR
 
@@ -208,7 +208,7 @@ uv run train.py --data $DATA_DIR/3DIdent_Concepts --root $CHECKPOINT_DIR --save 
         --num_latent_scales 3 --num_latent_per_group 20 --num_cell_per_cond_enc 2 --num_cell_per_cond_dec 2 \
         --num_preprocess_blocks 1 --num_postprocess_blocks 1 --weight_decay_norm 1e-1 --num_groups_per_scale 10 \
         --batch_size 128 --ada_groups --num_process_per_node 8 --use_se --res_dist --micro_batches 2 \
-        --arch_flag fine-tune-concept --eps_dim 3 --eps_in_width 7 --eps_out_width 50 --eps_depth 6 --c_dim 3 --c_width 50 \
+        --arch_flag fine-tune-concept-unfreeze --eps_dim 3 --eps_in_width 7 --eps_out_width 50 --eps_depth 6 --c_dim 3 --c_width 50 \
         --finetune_pt $CHECKPOINT_DIR_BASE --freeze_iters 2000
 ```
 
@@ -312,7 +312,7 @@ uv run evaluate.py --checkpoint $CHECKPOINT_DIR/eval-$EXPR_ID/checkpoint.pt --ev
     --save "${IMG_DIR}/reconstruction_test" --world_size 1 --local_rank 0 --data $DATA_DIR --batch_size $batch_size
 
 uv run evaluate.py --checkpoint $CHECKPOINT_DIR/eval-$EXPR_ID/checkpoint.pt --eval_mode=id_metrics --readjust_bn\
-    --save $IMG_DIR --world_size 1 --local_rank 0 --data $ID_DIR --batch_size $batch_size--dataset $DATASET
+    --save $IMG_DIR --world_size 1 --local_rank 0 --data $ID_DIR --batch_size $batch_size --dataset $DATASET
 ```
 
 </details>
@@ -328,7 +328,7 @@ export CODE_DIR=PATH_TO_CODE_DIR
 export IMG_DIR=PATH_TO_IMG_DIR
 export ID_DIR=PATH_TO_IN_DISTRIBUTION_DATA
 export OOD_DIR=PATH_TO_OUT_OF_DISTRIBUTION_DATA
-export DATASET=concepts_mnist
+export DATASET=3DIdent_Concepts 
 
 export temp=0.7
 export temp_str=$(echo $temp | tr . _)
