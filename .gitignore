@@ -8,3 +8,10 @@ scripts/identBox/__MACOSX
 *.log
 scripts/identBox/unzip.sh
 *.ipynb
+
+CLAUDE.md
+.claude/
+
+**/__pycache__  
+.venv/
+.python-version
