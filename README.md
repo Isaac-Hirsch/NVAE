@@ -4,6 +4,9 @@ This repo provides a PyTorch implementation of NVAE extended with the `context m
 
 NVAE ([NeurIPS 2020 Spotlight](https://arxiv.org/abs/2007.03898)) is a deep hierarchical VAE by Arash Vahdat and Jan Kautz. In this repo, the first latent code `z0` is passed through the `context module` (a `dec_conceptualizer` from [`context_module/`](context_module/)) to produce an interpretable, causally disentangled decomposition before decoding.
 
+[`context_module/`](context_module/) needs to be installed through `git submodule update --init --recursive`.
+
+
 Dependencies, versioning, and installation are all handled by `uv`, with the included [`pyproject.toml`](./pyproject.toml) and [`uv.lock`](./uv.lock) containing all necessary information.
 
 After [installing uv](https://docs.astral.sh/uv/getting-started/), install the project with:
@@ -17,6 +20,10 @@ Then prefix any command below with `uv run` (e.g., `uv run python train.py ...`)
 ---
 
 ## Training
+
+Training runs were done on a 8 x NVIDIA H200 node.
+
+Datasets can be downloaded from [Zenodo](https://zenodo.org/records/19346614).
 
 <details><summary>MNIST</summary>
 
